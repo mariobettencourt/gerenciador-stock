@@ -1,26 +1,60 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --lota-navy: #0f172a;
+  --lota-blue: #1e3a8a;
+  --lota-bg: #f8fafc;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--lota-bg);
+  color: var(--lota-navy);
+  /* O Next.js já carrega a font-sans por defeito no layout.tsx */
+}
+
+/* Estilos Globais usando CSS Standard para evitar erros de Build */
+.btn-gourmet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 2rem;
+  border-radius: 2rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  transition: all 0.2s;
+  box-shadow: 0 25px 50px -12px rgba(30, 58, 138, 0.25);
+}
+
+.btn-gourmet:active {
+  transform: scale(0.95);
+}
+
+.card-gourmet {
+  background-color: white;
+  padding: 2rem;
+  border-radius: 2.5rem;
+  border: 1px solid white;
+  transition: all 0.5s;
+  box-shadow: 0 20px 25px -5px rgba(30, 58, 138, 0.03);
+}
+
+.card-gourmet:hover {
+  border-color: rgba(30, 58, 138, 0.2);
+}
+
+.input-gourmet {
+  border: 2px solid #f1f5f9;
+  padding: 1rem;
+  border-radius: 1rem;
+  font-weight: 700;
+  font-size: 0.875rem;
+  outline: none;
+  background-color: rgba(248, 250, 252, 0.5);
+  transition: all 0.2s;
+}
+
+.input-gourmet:focus {
+  border-color: var(--lota-blue);
 }
