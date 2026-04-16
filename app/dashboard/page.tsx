@@ -36,7 +36,7 @@ export default function DashboardInicial() {
         
         produtos.forEach(p => {
           totalVal += (p.quantidade || 0) * (p.preco || 0);
-          if ((p.quantidade || 0) <= (p.stock_minimo || 5)) {
+          if ((p.quantidade || 0) <= (p.stock_minimo)) {
             emRutura++;
             criticos.push(p);
           }
@@ -52,11 +52,20 @@ export default function DashboardInicial() {
       }
 
       // 3. Movimentos Recentes
-      const { data: movs } = await supabase
-        .from("movimentos")
-        .select(`id, created_at, tipo, quantidade, utilizador, produtos(nome)`)
-        .order("created_at", { ascending: false })
-        .limit(6);
+// 3. Movimentos Recentes (Auditoria)
+const { data: movs } = await supabase
+  .from("movimentos")
+  .select(`
+    id, 
+    created_at, 
+    tipo, 
+    quantidade, 
+    origem,
+    destino,
+    produtos (nome)
+  `)
+  .order("created_at", { ascending: false })
+  .limit(6);
         
       if (movs) setMovimentosRecentes(movs);
       setACarregar(false);
@@ -141,11 +150,12 @@ export default function DashboardInicial() {
                     {mov.tipo === 'Saída' ? '📤' : '📥'}
                   </div>
                   <div>
-                    <p className="font-black text-xs uppercase text-slate-800">{mov.produtos?.nome}</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
-                      {new Date(mov.created_at).toLocaleTimeString('pt-PT')} • {mov.utilizador || "Admin"}
-                    </p>
-                  </div>
+  <p className="font-black text-xs uppercase text-slate-800">{mov.produtos?.nome}</p>
+  <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+    {new Date(mov.created_at).toLocaleDateString('pt-PT')} às {new Date(mov.created_at).toLocaleTimeString('pt-PT')}
+    {mov.destino ? ` • DESTINO: ${mov.destino}` : ''}
+  </p>
+</div>
                 </div>
                 <div className="text-right">
                   <p className={`font-black text-lg ${mov.tipo === 'Saída' ? 'text-blue-600' : 'text-green-600'}`}>

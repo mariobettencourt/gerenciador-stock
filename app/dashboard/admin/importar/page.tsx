@@ -96,12 +96,34 @@ export default function AdminImportar() {
         adicionarLog("A enviar para a base de dados (Supabase)...");
 
         // Envio em massa para o Supabase
-const { error } = await supabase.from("produtos").upsert(produtosAInserir, { onConflict: 'nome, local' });
+        const { error } = await supabase.from("produtos").upsert(produtosAInserir, { onConflict: 'nome, local' });
         if (error) {
           throw new Error(error.message);
         }
 
-        adicionarLog("✅ Importação de Produtos concluída com sucesso!");
+        // --- INÍCIO DA LÓGICA DE AUDITORIA ---
+        adicionarLog("A registar a importação na Auditoria Geral...");
+        const { data: authData } = await supabase.auth.getUser();
+
+        if (authData?.user?.id) {
+          const { error: erroAuditoria } = await supabase.from("movimentos").insert({
+            tipo: "Entrada", // Regista como uma entrada global
+            utilizador: authData.user.id,
+            quantidade: produtosAInserir.length,
+            observacao: `Importação em massa via ficheiro Excel. ${produtosAInserir.length} artigos processados simultaneamente.`
+          });
+
+          if (erroAuditoria) {
+            adicionarLog(`⚠️ Aviso: Produtos importados, mas falha ao gravar na auditoria (${erroAuditoria.message}).`);
+          } else {
+            adicionarLog("✅ Registo de auditoria criado com sucesso.");
+          }
+        } else {
+          adicionarLog("⚠️ Aviso: Não foi possível identificar o utilizador para a auditoria.");
+        }
+        // --- FIM DA LÓGICA DE AUDITORIA ---
+
+        adicionarLog("✅ Importação de Produtos concluída totalmente!");
         alert(`Sucesso! Foram adicionados ${produtosAInserir.length} artigos ao catálogo.`);
 
       } catch (err: any) {

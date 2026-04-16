@@ -1,72 +1,117 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
+import { supabase } from "../../../lib/supabase";
 
-export default function Dashboard() {
-  const [produtos, setProdutos] = useState<any[]>([]);
+export default function HistoricoMovimentos() {
+  const router = useRouter();
+  const [movimentos, setMovimentos] = useState<any[]>([]);
   const [aCarregar, setACarregar] = useState(true);
-  const [pesquisa, setPesquisa] = useState("");
 
-  // O Inventário já nem precisa de carregar o utilizador, 
-  // porque a Sidebar no layout já faz isso!
-  useEffect(() => {
-    const iniciar = async () => {
-      const { data } = await supabase.from("produtos").select("*").order("nome");
-      setProdutos(data || []);
+  const carregarMovimentos = async () => {
+    try {
+      setACarregar(true);
+      // O "*" vai buscar tudo de movimentos, e o bloco seguinte busca o nome do produto associado
+      const { data, error } = await supabase
+        .from("movimentos")
+        .select(`
+          *,
+          produtos:produto_id ( nome )
+        `)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Erro detalhado do Supabase:", error);
+        return;
+      }
+      
+      setMovimentos(data || []);
+    } catch (error) {
+      console.error("Erro inesperado:", error);
+    } finally {
       setACarregar(false);
-    };
-    iniciar();
+    }
+  };
+
+  useEffect(() => {
+    carregarMovimentos();
   }, []);
 
-  const produtosFiltrados = produtos.filter(p => p.nome.toLowerCase().includes(pesquisa.toLowerCase()));
-
-  // COMEÇA LOGO NO MAIN! Sem divs extra à volta e sem Sidebar.
   return (
-    <main className="flex-1 p-12 overflow-y-auto w-full h-screen">
-      <header className="flex justify-between items-center mb-12">
-        <div>
-          <h1 className="text-4xl font-black text-[#0f172a] tracking-tighter">Stock de <span className="text-[#1e3a8a] italic">Material</span></h1>
-          <div className="h-1.5 w-24 bg-[#1e3a8a] rounded-full mt-2"></div>
+    <div className="min-h-screen bg-gray-100 p-8 font-sans text-gray-800">
+      <div className="max-w-6xl mx-auto">
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <button onClick={() => router.push("/dashboard")} className="text-[#1e3a8a] hover:underline text-sm font-bold flex items-center gap-1 mb-2">
+              ← VOLTAR AO INVENTÁRIO
+            </button>
+            <h1 className="text-3xl font-bold text-[#1e3a8a]">Histórico de Movimentos</h1>
+          </div>
+          <button onClick={carregarMovimentos} className="bg-white border border-gray-300 px-4 py-2 rounded shadow-sm hover:bg-gray-50 font-bold text-xs uppercase">
+            🔄 Atualizar
+          </button>
         </div>
-        <input 
-          type="text" 
-          placeholder="Procurar no inventário..." 
-          value={pesquisa} 
-          onChange={e => setPesquisa(e.target.value)} 
-          className="pl-6 pr-6 py-4 bg-white shadow-xl shadow-blue-900/5 rounded-[2rem] w-80 outline-none focus:ring-2 ring-blue-100 font-medium text-sm" 
-        />
-      </header>
 
-      <div className="bg-white rounded-[2.5rem] shadow-xl shadow-blue-900/[0.03] overflow-hidden border border-white">
-        <table className="w-full text-left">
-          <thead className="bg-[#f8fafc] text-[#1e3a8a] uppercase text-[10px] tracking-[0.2em] font-black border-b">
-            <tr>
-              <th className="p-6">Material</th>
-              <th className="p-6">Armazém</th>
-              <th className="p-6 text-center">Quantidade</th>
-              <th className="p-6 text-right">Valor Unit.</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {produtosFiltrados.map((p) => (
-              <tr key={p.id} className="hover:bg-blue-50/30 transition-colors group">
-                <td className="p-6">
-                  <p className="font-black text-[#0f172a] uppercase text-sm tracking-tighter">{p.nome}</p>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase">{p.categoria || "Geral"}</p>
-                </td>
-                <td className="p-6 text-[10px] font-black text-blue-600 uppercase tracking-widest">{p.local || "Sede"}</td>
-                <td className="p-6 text-center">
-                  <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase ${p.quantidade <= (p.quantidade_minima || 0) ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                    {p.quantidade} un.
-                  </span>
-                </td>
-                <td className="p-6 text-right font-bold text-gray-700 text-sm">€ {(p.preco || 0).toFixed(2)}</td>
+        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-[#1e3a8a] text-white font-bold uppercase text-[10px] tracking-widest">
+              <tr>
+                <th className="p-4">Data / Hora</th>
+                <th className="p-4">Produto</th>
+                <th className="p-4">Tipo</th>
+                <th className="p-4 text-center">Qtd</th>
+                <th className="p-4">Fluxo (Origem ➔ Destino)</th>
+                <th className="p-4">Utilizador</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {aCarregar ? (
+                <tr><td colSpan={6} className="p-12 text-center text-gray-400 font-medium">A carregar registos do economato...</td></tr>
+              ) : movimentos.length === 0 ? (
+                <tr><td colSpan={6} className="p-12 text-center text-gray-400 font-medium">Ainda não existem movimentos registados.</td></tr>
+              ) : (
+                movimentos.map((m) => (
+                  <tr key={m.id} className="hover:bg-blue-50/50 transition-colors">
+                    <td className="p-4 text-gray-500 font-mono text-xs">
+                      {new Date(m.created_at).toLocaleString('pt-PT')}
+                    </td>
+                    <td className="p-4 font-bold text-[#1e3a8a]">
+                      {m.produtos?.nome || "Produto #" + m.produto_id}
+                    </td>
+                    <td className="p-4">
+                      <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                        m.tipo === 'Entrada' ? 'bg-green-100 text-green-700' : 
+                        m.tipo === 'Saída' ? 'bg-red-100 text-red-700' : 
+                        m.tipo === 'Transferência' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                      }`}>
+                        {m.tipo}
+                      </span>
+                    </td>
+                    <td className={`p-4 text-center font-black ${m.quantidade > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {m.quantidade > 0 ? `+${m.quantidade}` : m.quantidade}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2 text-[11px] font-bold">
+                        <span className="text-gray-600 uppercase">{m.origem}</span>
+                        {m.destino && (
+                          <>
+                            <span className="text-blue-300">➔</span>
+                            <span className="text-blue-600 uppercase">{m.destino}</span>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4 text-gray-400 italic text-[10px] truncate max-w-[120px]">
+                      {m.utilizador}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </main>
+    </div>
   );
 }

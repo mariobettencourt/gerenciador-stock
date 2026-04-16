@@ -12,7 +12,10 @@ export default function PedidosTickets() {
   const [listaContatos, setListaContatos] = useState<any[]>([]);
   const [aCarregar, setACarregar] = useState(true);
   const [modalAberto, setModalAberto] = useState(false);
+  
+  // Estados de processamento
   const [gerandoPDF, setGerandoPDF] = useState<number | null>(null);
+  const [aEnviarEmail, setAEnviarEmail] = useState<number | null>(null);
 
   // --- FILTROS E PESQUISA ---
   const [filtroEstado, setFiltroEstado] = useState("Todos");
@@ -55,7 +58,197 @@ export default function PedidosTickets() {
     return matchEstado && matchData;
   });
 
-  // --- DESIGN DA GUIA ATUALIZADO COM ASSINATURAS ---
+  // =========================================================================
+  // --- FUNÇÃO AUXILIAR: DESENHAR O PDF (Usada pela Guia e pelo Email) ---
+  // =========================================================================
+  const gerarDocumentoPDF = async (pedido: any, movimentos: any[]) => {
+    const doc = new jsPDF();
+    const dataHoje = new Date(pedido.created_at).toLocaleDateString('pt-PT');
+
+    // --- LOGOTIPO ---
+    const carregarLogo = (): Promise<HTMLImageElement | null> => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.src = '/logo.jpg';
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+      });
+    };
+
+    const logoImg = await carregarLogo();
+    if (logoImg) {
+      doc.addImage(logoImg, 'JPEG', 15, 10, 85, 25);
+    }
+
+    // --- CABEÇALHO DIREITO ---
+    doc.setTextColor(30, 58, 138); 
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(26);
+    doc.text("Pedido", 195, 22, { align: 'right' });
+    doc.setFontSize(12);
+    doc.text(`nº ${pedido.id}`, 195, 28, { align: 'right' });
+
+    doc.setDrawColor(30, 58, 138);
+    doc.setLineWidth(0.8);
+    doc.line(15, 38, 195, 38);
+
+    // --- INFORMAÇÕES ---
+    doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
+    doc.text("PARA", 15, 48); doc.text("DATA", 145, 48);
+
+    doc.setTextColor(0); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.text(pedido.contactos?.nome?.toUpperCase() || "UNIDADE DESTINO", 15, 54);
+    doc.text(dataHoje, 145, 54);
+
+    doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
+    doc.text("REQUISITANTE", 15, 65);
+    doc.setTextColor(0); doc.setFont("helvetica", "bold");
+    doc.text(pedido.requisitante?.toUpperCase() || "---", 15, 71);
+
+    if (pedido.observacao) {
+      doc.setTextColor(100); doc.text("COMENTÁRIO", 145, 65);
+      doc.setTextColor(0); doc.setFont("helvetica", "normal");
+      doc.text(pedido.observacao, 145, 71, { maxWidth: 45 });
+    }
+
+    // --- TABELA ---
+    const corpoTabela = await Promise.all(movimentos.map(async (m) => {
+      const { data: prod } = await supabase.from("produtos").select("nome").eq("id", m.produto_id).single();
+      return [
+        prod?.nome?.toUpperCase() || "ARTIGO #" + m.produto_id,
+        m.local || "Entreposto Ponta Delgada",
+        m.observacoes || "",
+        Math.abs(m.quantidade || 0).toString()
+      ];
+    }));
+
+    autoTable(doc, {
+      startY: 82,
+      head: [['Material / Artigo', 'Local de Saída', 'Notas', 'QTD']],
+      body: corpoTabela,
+      theme: 'plain',
+      headStyles: { textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 10, borderBottom: { color: [0, 0, 0], width: 0.1 } },
+      styles: { fontSize: 9, cellPadding: 4, lineColor: [230, 230, 230], lineWidth: 0.1 },
+      columnStyles: { 3: { halign: 'right', fontStyle: 'bold', cellWidth: 20 } }
+    });
+
+    // --- SOMA TOTAL ---
+    const totalQtd = movimentos.reduce((acc, curr) => acc + Math.abs(curr.quantidade || 0), 0);
+    const finalY = (doc as any).lastAutoTable.finalY + 12;
+    doc.setFontSize(11); doc.setTextColor(30, 58, 138); doc.setFont("helvetica", "bold");
+    doc.text(`TOTAL DE ITENS: ${totalQtd}`, 195, finalY, { align: 'right' });
+
+    // --- ÁREAS DE ASSINATURA ---
+    const sigY = finalY + 30;
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.2);
+    doc.line(15, sigY, 90, sigY);
+    doc.line(120, sigY, 195, sigY);
+
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.setFont("helvetica", "normal");
+    doc.text("ENTREGUE POR (ASSINATURA)", 15, sigY + 5);
+    doc.text("RECEBIDO POR (ASSINATURA)", 120, sigY + 5);
+
+    // --- RODAPÉ ---
+    const fY = 270;
+    doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.5);
+    doc.line(15, fY, 195, fY);
+    doc.setFontSize(8); doc.setTextColor(0); doc.setFont("helvetica", "bold");
+    doc.text("LOTAÇOR S.A", 15, fY + 7);
+    doc.setFont("helvetica", "normal"); doc.setTextColor(100);
+    doc.text("Rua Eng. Abel Ferin Coutinho, n.º 15 | Ponta Delgada | NIF: 512013322", 15, fY + 12);
+    doc.text("T: 296 302 580 | economato@lotacor.pt", 140, fY + 12);
+
+    return doc;
+  };
+
+  // =========================================================================
+  // --- LÓGICA DE ENVIO DE EMAIL COM PDF ANEXO ---
+  // =========================================================================
+  const handleEnviarEmail = async (pedido: any) => {
+    setAEnviarEmail(pedido.id);
+
+    try {
+      // 1. Procurar o email do contacto de destino na base de dados
+      const { data: contacto } = await supabase
+        .from("contactos")
+        .select("email")
+        .eq("id", pedido.contacto_id)
+        .single();
+
+      let emailDestino = contacto?.email;
+
+      // Se não tiver email, perguntamos ao utilizador
+      if (!emailDestino) {
+        const emailManual = prompt(`Não encontrámos email automático para "${pedido.contactos?.nome}".\nPor favor, introduza o email de destino:`);
+        if (!emailManual) {
+          setAEnviarEmail(null);
+          return;
+        }
+        emailDestino = emailManual;
+      }
+
+      // 2. Ir buscar os movimentos
+      const { data: movimentos } = await supabase
+        .from("movimentos")
+        .select("*")
+        .eq("pedido_id", pedido.id)
+        .eq("tipo", "Saída");
+
+      if (!movimentos || movimentos.length === 0) {
+        alert("Este pedido não tem artigos registados para enviar no comprovativo.");
+        setAEnviarEmail(null);
+        return;
+      }
+
+      // 3. Gerar o PDF (usando a nossa função auxiliar)
+      const doc = await gerarDocumentoPDF(pedido, movimentos);
+      
+      // Transformar o PDF em Base64 para enviar pela API
+      const pdfBase64 = doc.output('datauristring').split(',')[1];
+
+      // Formatamos também os itens em texto para aparecerem no corpo do email (opcional)
+      const itensFormatados = await Promise.all(movimentos.map(async (m) => {
+        const { data: prod } = await supabase.from("produtos").select("nome").eq("id", m.produto_id).single();
+        return {
+          nome: prod?.nome || "Artigo #" + m.produto_id,
+          quantidade: Math.abs(m.quantidade || 0)
+        };
+      }));
+
+      // 4. Chamar a nossa API secreta
+      const resposta = await fetch('/api/enviar-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pedidoId: pedido.id,
+          emailDestino: emailDestino,
+          nomeUtilizador: pedido.requisitante || "Colaborador",
+          itens: itensFormatados,
+          pdfAnexo: pdfBase64 // <- AQUI ESTÁ O PDF ENVIADO!
+        })
+      });
+
+      const resultado = await resposta.json();
+
+      if (resultado.success) {
+        alert(`✅ Comprovativo (PDF) enviado com sucesso para ${emailDestino}!`);
+      } else {
+        alert("❌ Falha ao enviar o email: " + resultado.error);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("❌ Erro ao gerar anexo ou comunicar com o servidor.");
+    } finally {
+      setAEnviarEmail(null);
+    }
+  };
+
+  // =========================================================================
+  // --- ABRIR PDF NO BROWSER (A Guia normal de re-imprimir) ---
+  // =========================================================================
   const gerarGuiaPDF = async (pedido: any) => {
     setGerandoPDF(pedido.id);
     
@@ -73,106 +266,8 @@ export default function PedidosTickets() {
         return;
       }
 
-      const doc = new jsPDF();
-      const dataHoje = new Date(pedido.created_at).toLocaleDateString('pt-PT');
-
-      // --- LOGOTIPO ---
-      const carregarLogo = (): Promise<HTMLImageElement | null> => {
-        return new Promise((resolve) => {
-          const img = new Image();
-          img.src = '/logo.jpg';
-          img.onload = () => resolve(img);
-          img.onerror = () => resolve(null);
-        });
-      };
-
-      const logoImg = await carregarLogo();
-      if (logoImg) {
-        doc.addImage(logoImg, 'JPEG', 15, 10, 85, 25);
-      }
-
-      // --- CABEÇALHO DIREITO ---
-      doc.setTextColor(30, 58, 138); 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(26);
-      doc.text("Pedido", 195, 22, { align: 'right' });
-      doc.setFontSize(12);
-      doc.text(`nº ${pedido.id}`, 195, 28, { align: 'right' });
-
-      doc.setDrawColor(30, 58, 138);
-      doc.setLineWidth(0.8);
-      doc.line(15, 38, 195, 38);
-
-      // --- INFORMAÇÕES ---
-      doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
-      doc.text("PARA", 15, 48); doc.text("DATA", 145, 48);
-
-      doc.setTextColor(0); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-      doc.text(pedido.contactos?.nome?.toUpperCase() || "UNIDADE DESTINO", 15, 54);
-      doc.text(dataHoje, 145, 54);
-
-      doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
-      doc.text("REQUISITANTE", 15, 65);
-      doc.setTextColor(0); doc.setFont("helvetica", "bold");
-      doc.text(pedido.requisitante?.toUpperCase() || "---", 15, 71);
-
-      if (pedido.observacao) {
-        doc.setTextColor(100); doc.text("COMENTÁRIO", 145, 65);
-        doc.setTextColor(0); doc.setFont("helvetica", "normal");
-        doc.text(pedido.observacao, 145, 71, { maxWidth: 45 });
-      }
-
-      // --- TABELA ---
-      const corpoTabela = await Promise.all(movimentos.map(async (m) => {
-        const { data: prod } = await supabase.from("produtos").select("nome").eq("id", m.produto_id).single();
-        return [
-          prod?.nome?.toUpperCase() || "ARTIGO #" + m.produto_id,
-          m.local || "Entreposto Ponta Delgada",
-          m.observacoes || "",
-          Math.abs(m.quantidade || 0).toString()
-        ];
-      }));
-
-      autoTable(doc, {
-        startY: 82,
-        head: [['Material / Artigo', 'Local de Saída', 'Notas', 'QTD']],
-        body: corpoTabela,
-        theme: 'plain',
-        headStyles: { textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 10, borderBottom: { color: [0, 0, 0], width: 0.1 } },
-        styles: { fontSize: 9, cellPadding: 4, lineColor: [230, 230, 230], lineWidth: 0.1 },
-        columnStyles: { 3: { halign: 'right', fontStyle: 'bold', cellWidth: 20 } }
-      });
-
-      // --- SOMA TOTAL ---
-      const totalQtd = movimentos.reduce((acc, curr) => acc + Math.abs(curr.quantidade || 0), 0);
-      const finalY = (doc as any).lastAutoTable.finalY + 12;
-      doc.setFontSize(11); doc.setTextColor(30, 58, 138); doc.setFont("helvetica", "bold");
-      doc.text(`TOTAL DE ITENS: ${totalQtd}`, 195, finalY, { align: 'right' });
-
-      // --- ÁREAS DE ASSINATURA (NOVO) ---
-      const sigY = finalY + 30;
-      doc.setDrawColor(200);
-      doc.setLineWidth(0.2);
-      // Linha Esquerda (Entregue)
-      doc.line(15, sigY, 90, sigY);
-      // Linha Direita (Recebido)
-      doc.line(120, sigY, 195, sigY);
-
-      doc.setFontSize(8);
-      doc.setTextColor(100);
-      doc.setFont("helvetica", "normal");
-      doc.text("ENTREGUE POR (ASSINATURA)", 15, sigY + 5);
-      doc.text("RECEBIDO POR (ASSINATURA)", 120, sigY + 5);
-
-      // --- RODAPÉ ---
-      const fY = 270;
-      doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.5);
-      doc.line(15, fY, 195, fY);
-      doc.setFontSize(8); doc.setTextColor(0); doc.setFont("helvetica", "bold");
-      doc.text("LOTAÇOR S.A", 15, fY + 7);
-      doc.setFont("helvetica", "normal"); doc.setTextColor(100);
-      doc.text("Rua Eng. Abel Ferin Coutinho, n.º 15 | Ponta Delgada | NIF: 512013322", 15, fY + 12);
-      doc.text("T: 296 302 580 | economato@lotacor.pt", 140, fY + 12);
+      // Reutiliza a mesma função de layout!
+      const doc = await gerarDocumentoPDF(pedido, movimentos);
 
       doc.save(`Pedido_${pedido.id}.pdf`);
       window.open(doc.output('bloburl'), '_blank');
@@ -284,7 +379,19 @@ export default function PedidosTickets() {
                   </>
                 )}
                 {p.estado === 'Concluído' && (
-                  <button onClick={() => gerarGuiaPDF(p)} className="bg-green-50 text-green-600 border border-green-200 px-8 py-4 rounded-2xl font-black text-[10px] uppercase italic">🖨️ Re-imprimir</button>
+                  <>
+                    <button onClick={() => gerarGuiaPDF(p)} className="bg-green-50 text-green-600 border border-green-200 px-8 py-4 rounded-2xl font-black text-[10px] uppercase italic hover:bg-green-100 transition-colors">
+                      🖨️ Re-imprimir
+                    </button>
+                    
+                    <button 
+                      onClick={() => handleEnviarEmail(p)}
+                      disabled={aEnviarEmail === p.id}
+                      className="bg-blue-50 text-blue-600 border border-blue-200 px-8 py-4 rounded-2xl font-black text-[10px] uppercase italic hover:bg-blue-100 transition-colors disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {aEnviarEmail === p.id ? <span className="animate-pulse">A Enviar PDF...</span> : "✉️ Enviar PDF"}
+                    </button>
+                  </>
                 )}
                 <button onClick={async () => { if(confirm("Apagar?")) { await supabase.from("pedidos").delete().eq("id", p.id); carregarDados(); } }} className="text-red-200 hover:text-red-500 text-[9px] font-black uppercase ml-4 transition-colors">Eliminar</button>
               </div>
