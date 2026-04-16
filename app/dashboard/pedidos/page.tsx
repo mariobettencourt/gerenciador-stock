@@ -1,194 +1,318 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation"; 
 import { supabase } from "@/lib/supabase";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function PedidosTickets() {
-  const router = useRouter();
+  const router = useRouter(); 
   const [pedidos, setPedidos] = useState<any[]>([]);
-  const [contactos, setContactos] = useState<any[]>([]);
+  const [listaContatos, setListaContatos] = useState<any[]>([]);
   const [aCarregar, setACarregar] = useState(true);
   const [modalAberto, setModalAberto] = useState(false);
-  const [cargo, setCargo] = useState<string | null>(null);
-  const [emailUtilizador, setEmailUtilizador] = useState<string>("");
+  const [gerandoPDF, setGerandoPDF] = useState<number | null>(null);
+
+  // --- FILTROS E PESQUISA ---
+  const [filtroEstado, setFiltroEstado] = useState("Todos");
+  const [filtroData, setFiltroData] = useState("");
 
   const [formulario, setFormulario] = useState({
-    requisitante: "",
-    contacto_id: "",
-    tipo: "Normal",
-    observacao: ""
+    quem_pede: "",         
+    id_destino: "",       
+    prioridade: "Normal", 
+    texto_pedido: ""      
   });
 
   const carregarDados = async () => {
     setACarregar(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user?.email) {
-      setEmailUtilizador(user.email);
-      const { data: perfil } = await supabase.from("perfis").select("cargo").eq("email", user.email).single();
-      if (perfil) setCargo(perfil.cargo);
-    }
-
-    const { data: conts } = await supabase.from("contactos").select("*").order("nome");
-    setContactos(conts || []);
+    const { data: conts } = await supabase.from("contactos").select("id, nome").order("nome");
+    setListaContatos(conts || []);
 
     const { data: peds } = await supabase
       .from("pedidos")
-      .select("*, contactos(nome, departamento)")
+      .select(`*, contactos!contacto_id (nome)`)
       .order("created_at", { ascending: false });
+    
     setPedidos(peds || []);
     setACarregar(false);
   };
 
   useEffect(() => { carregarDados(); }, []);
 
-  const criarTicket = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formulario.contacto_id) return alert("Selecione um destino!");
-    await supabase.from("pedidos").insert([formulario]);
-    setModalAberto(false);
-    setFormulario({ requisitante: "", contacto_id: "", tipo: "Normal", observacao: "" });
-    carregarDados();
+  // --- MUDANÇA DE ESTADO (CONCLUIR) ---
+  const mudarEstado = async (id: number, novoEstado: string) => {
+    const { error } = await supabase.from("pedidos").update({ estado: novoEstado }).eq("id", id);
+    if (!error) carregarDados();
+    else alert("Erro ao atualizar o fluxo.");
   };
 
-  const mudarEstado = async (id: number, novoEstado: string) => {
-    await supabase.from("pedidos").update({ estado: novoEstado }).eq("id", id);
-    carregarDados();
+  // --- LÓGICA DE FILTRAGEM ---
+  const pedidosFiltrados = pedidos.filter(p => {
+    const matchEstado = filtroEstado === "Todos" || p.estado === filtroEstado;
+    const matchData = !filtroData || p.created_at.includes(filtroData);
+    return matchEstado && matchData;
+  });
+
+  // --- DESIGN DA GUIA ATUALIZADO COM ASSINATURAS ---
+  const gerarGuiaPDF = async (pedido: any) => {
+    setGerandoPDF(pedido.id);
+    
+    try {
+      const { data: movimentos, error: erroMov } = await supabase
+        .from("movimentos")
+        .select("*")
+        .eq("pedido_id", pedido.id)
+        .eq("tipo", "Saída");
+
+      if (erroMov) throw erroMov;
+      if (!movimentos || movimentos.length === 0) {
+        alert("Este pedido ainda não tem itens processados.");
+        setGerandoPDF(null);
+        return;
+      }
+
+      const doc = new jsPDF();
+      const dataHoje = new Date(pedido.created_at).toLocaleDateString('pt-PT');
+
+      // --- LOGOTIPO ---
+      const carregarLogo = (): Promise<HTMLImageElement | null> => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.src = '/logo.jpg';
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+        });
+      };
+
+      const logoImg = await carregarLogo();
+      if (logoImg) {
+        doc.addImage(logoImg, 'JPEG', 15, 10, 85, 25);
+      }
+
+      // --- CABEÇALHO DIREITO ---
+      doc.setTextColor(30, 58, 138); 
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(26);
+      doc.text("Pedido", 195, 22, { align: 'right' });
+      doc.setFontSize(12);
+      doc.text(`nº ${pedido.id}`, 195, 28, { align: 'right' });
+
+      doc.setDrawColor(30, 58, 138);
+      doc.setLineWidth(0.8);
+      doc.line(15, 38, 195, 38);
+
+      // --- INFORMAÇÕES ---
+      doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
+      doc.text("PARA", 15, 48); doc.text("DATA", 145, 48);
+
+      doc.setTextColor(0); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+      doc.text(pedido.contactos?.nome?.toUpperCase() || "UNIDADE DESTINO", 15, 54);
+      doc.text(dataHoje, 145, 54);
+
+      doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
+      doc.text("REQUISITANTE", 15, 65);
+      doc.setTextColor(0); doc.setFont("helvetica", "bold");
+      doc.text(pedido.requisitante?.toUpperCase() || "---", 15, 71);
+
+      if (pedido.observacao) {
+        doc.setTextColor(100); doc.text("COMENTÁRIO", 145, 65);
+        doc.setTextColor(0); doc.setFont("helvetica", "normal");
+        doc.text(pedido.observacao, 145, 71, { maxWidth: 45 });
+      }
+
+      // --- TABELA ---
+      const corpoTabela = await Promise.all(movimentos.map(async (m) => {
+        const { data: prod } = await supabase.from("produtos").select("nome").eq("id", m.produto_id).single();
+        return [
+          prod?.nome?.toUpperCase() || "ARTIGO #" + m.produto_id,
+          m.local || "Entreposto Ponta Delgada",
+          m.observacoes || "",
+          Math.abs(m.quantidade || 0).toString()
+        ];
+      }));
+
+      autoTable(doc, {
+        startY: 82,
+        head: [['Material / Artigo', 'Local de Saída', 'Notas', 'QTD']],
+        body: corpoTabela,
+        theme: 'plain',
+        headStyles: { textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 10, borderBottom: { color: [0, 0, 0], width: 0.1 } },
+        styles: { fontSize: 9, cellPadding: 4, lineColor: [230, 230, 230], lineWidth: 0.1 },
+        columnStyles: { 3: { halign: 'right', fontStyle: 'bold', cellWidth: 20 } }
+      });
+
+      // --- SOMA TOTAL ---
+      const totalQtd = movimentos.reduce((acc, curr) => acc + Math.abs(curr.quantidade || 0), 0);
+      const finalY = (doc as any).lastAutoTable.finalY + 12;
+      doc.setFontSize(11); doc.setTextColor(30, 58, 138); doc.setFont("helvetica", "bold");
+      doc.text(`TOTAL DE ITENS: ${totalQtd}`, 195, finalY, { align: 'right' });
+
+      // --- ÁREAS DE ASSINATURA (NOVO) ---
+      const sigY = finalY + 30;
+      doc.setDrawColor(200);
+      doc.setLineWidth(0.2);
+      // Linha Esquerda (Entregue)
+      doc.line(15, sigY, 90, sigY);
+      // Linha Direita (Recebido)
+      doc.line(120, sigY, 195, sigY);
+
+      doc.setFontSize(8);
+      doc.setTextColor(100);
+      doc.setFont("helvetica", "normal");
+      doc.text("ENTREGUE POR (ASSINATURA)", 15, sigY + 5);
+      doc.text("RECEBIDO POR (ASSINATURA)", 120, sigY + 5);
+
+      // --- RODAPÉ ---
+      const fY = 270;
+      doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.5);
+      doc.line(15, fY, 195, fY);
+      doc.setFontSize(8); doc.setTextColor(0); doc.setFont("helvetica", "bold");
+      doc.text("LOTAÇOR S.A", 15, fY + 7);
+      doc.setFont("helvetica", "normal"); doc.setTextColor(100);
+      doc.text("Rua Eng. Abel Ferin Coutinho, n.º 15 | Ponta Delgada | NIF: 512013322", 15, fY + 12);
+      doc.text("T: 296 302 580 | economato@lotacor.pt", 140, fY + 12);
+
+      doc.save(`Pedido_${pedido.id}.pdf`);
+      window.open(doc.output('bloburl'), '_blank');
+
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao gerar PDF.");
+    } finally {
+      setGerandoPDF(null);
+    }
+  };
+
+  const criarTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const { error } = await supabase.from("pedidos").insert({
+        requisitante: formulario.quem_pede,
+        contacto_id: formulario.id_destino,
+        tipo: formulario.prioridade,
+        observacao: formulario.texto_pedido,
+        estado: "Pendente"
+      });
+      if (error) throw error;
+      setModalAberto(false);
+      setFormulario({ quem_pede: "", id_destino: "", prioridade: "Normal", texto_pedido: "" });
+      carregarDados();
+    } catch (err) {
+      alert("Erro ao criar pedido.");
+    }
   };
 
   return (
-    <div className="flex h-screen bg-[#f8fafc] font-sans">
-      {/* SIDEBAR GOURMET */}
-      <aside className="w-72 bg-gradient-to-b from-[#0f172a] to-[#1e3a8a] text-white flex flex-col shadow-xl">
-        <div className="p-8 mb-4 flex items-center gap-3">
-          <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/20 text-2xl">🧊</div>
-          <div>
-            <h1 className="text-xl font-black tracking-tighter leading-none italic uppercase">Lotaçor</h1>
-            <p className="text-[9px] font-bold text-blue-300 tracking-[0.3em] uppercase">Economato</p>
-          </div>
+    <main className="flex-1 p-8 md:p-12 overflow-y-auto h-screen bg-slate-50">
+      {/* HEADER E FILTROS */}
+      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
+        <div>
+          <h1 className="text-4xl font-black text-[#0f172a] tracking-tighter uppercase italic leading-none">
+            Fluxo de <span className="text-[#1e3a8a]">Pedidos</span>
+          </h1>
+          <div className="h-1.5 w-24 bg-[#1e3a8a] rounded-full mt-3"></div>
         </div>
-        <nav className="flex-1 px-4 space-y-1">
-          <button onClick={() => router.push("/dashboard")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-blue-100 hover:bg-white/10 transition-all uppercase text-[11px] tracking-widest text-left"><span>🏠</span> Inventário</button>
-          <button onClick={() => router.push("/dashboard/gestao")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-blue-100 hover:bg-white/10 transition-all uppercase text-[11px] tracking-widest text-left"><span>📦</span> Gestão Stock</button>
-          <button onClick={() => router.push("/dashboard/pedidos")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white text-[#1e3a8a] shadow-lg font-bold uppercase text-[11px] tracking-widest text-left"><span>📋</span> Pedidos</button>
-          <button onClick={() => router.push("/dashboard/contactos")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-blue-100 hover:bg-white/10 transition-all uppercase text-[11px] tracking-widest text-left"><span>📇</span> Contactos</button>
-          <button onClick={() => router.push("/dashboard/movimentos")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-blue-100 hover:bg-white/10 transition-all uppercase text-[11px] tracking-widest text-left"><span>🔄</span> Movimentos</button>
-        </nav>
-        <div className="m-6 p-4 bg-white/5 border border-white/10 rounded-[2rem] text-xs">
-          <p className="font-black text-blue-300 uppercase mb-1 tracking-widest">{cargo}</p>
-          <p className="opacity-70 truncate mb-4">{emailUtilizador}</p>
-          <button onClick={async () => { await supabase.auth.signOut(); router.push("/"); }} className="w-full py-3 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white rounded-xl font-black uppercase transition-all">Sair</button>
-        </div>
-      </aside>
 
-      <main className="flex-1 p-12 overflow-y-auto">
-        <header className="flex justify-between items-center mb-12">
-          <div>
-            <h1 className="text-4xl font-black text-[#0f172a] tracking-tighter">Gestão de <span className="text-[#1e3a8a] italic">Pedidos</span></h1>
-            <div className="h-1.5 w-24 bg-[#1e3a8a] rounded-full mt-2"></div>
+        <div className="flex flex-wrap gap-3 items-center w-full lg:w-auto">
+          <div className="flex bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200 items-center">
+            <span className="text-[9px] font-black text-slate-400 uppercase mr-3">Data:</span>
+            <input type="date" value={filtroData} onChange={e => setFiltroData(e.target.value)} className="text-xs font-bold outline-none bg-transparent" />
           </div>
-          <button onClick={() => setModalAberto(true)} className="bg-[#1e3a8a] text-white px-10 py-5 rounded-[2rem] font-black uppercase text-[10px] tracking-widest shadow-2xl hover:-translate-y-1 transition-all">+ Novo Pedido</button>
-        </header>
+          <div className="flex bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200 items-center">
+            <span className="text-[9px] font-black text-slate-400 uppercase mr-3">Estado:</span>
+            <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="text-xs font-bold outline-none bg-transparent uppercase">
+              <option value="Todos">Todos</option>
+              <option value="Pendente">Pendentes</option>
+              <option value="Processado">Processados</option>
+              <option value="Concluído">Concluídos</option>
+            </select>
+          </div>
+          <button onClick={() => setModalAberto(true)} className="px-6 py-3 bg-[#1e3a8a] text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg hover:scale-105 transition-all">+ Novo Pedido</button>
+        </div>
+      </header>
 
-        <div className="grid grid-cols-1 gap-6">
-          {aCarregar ? (
-            <div className="text-center p-20 font-black text-gray-300 uppercase tracking-widest animate-pulse">Sincronizando pedidos...</div>
-          ) : pedidos.length === 0 ? (
-            <div className="bg-white rounded-[3rem] p-20 text-center border-4 border-dashed border-gray-100 text-gray-300 font-black uppercase tracking-widest">Sem pedidos registados</div>
-          ) : pedidos.map((p) => (
-            <div key={p.id} className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-blue-900/[0.03] border border-white flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 group hover:border-blue-100 transition-all">
+      {/* ESTATÍSTICAS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        {[
+          { label: 'Pendentes', cor: 'border-amber-400', qtd: pedidos.filter(p => p.estado === 'Pendente').length, bg: 'text-amber-600' },
+          { label: 'Aguardando Entrega', cor: 'border-blue-500', qtd: pedidos.filter(p => p.estado === 'Processado').length, bg: 'text-blue-600' },
+          { label: 'Concluídos', cor: 'border-green-500', qtd: pedidos.filter(p => p.estado === 'Concluído').length, bg: 'text-green-600' }
+        ].map((card, i) => (
+          <div key={i} className={`bg-white p-6 rounded-[2rem] shadow-sm border-b-8 ${card.cor} flex justify-between items-end`}>
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{card.label}</p>
+              <p className={`text-4xl font-black ${card.bg}`}>{card.qtd}</p>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-xl opacity-20">📊</div>
+          </div>
+        ))}
+      </div>
+
+      {/* LISTAGEM */}
+      <div className="space-y-4">
+        {aCarregar ? (
+          <div className="text-center py-20 font-black text-slate-300 animate-pulse uppercase tracking-widest">Sincronizando...</div>
+        ) : pedidosFiltrados.length === 0 ? (
+          <div className="bg-white p-20 rounded-[3rem] text-center border-4 border-dashed border-slate-100 font-bold text-slate-300 uppercase text-xs">Nenhum pedido encontrado.</div>
+        ) : (
+          pedidosFiltrados.map((p) => (
+            <div key={p.id} className={`bg-white p-8 rounded-[2.5rem] shadow-sm flex flex-col md:flex-row justify-between items-center border-l-8 transition-all hover:shadow-md ${
+              p.estado === 'Pendente' ? 'border-amber-400' : p.estado === 'Concluído' ? 'border-green-500' : 'border-[#1e3a8a]'
+            }`}>
               <div className="flex-1">
-                <div className="flex items-center gap-3 mb-4">
-                  <span className={`px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${p.estado === 'Pendente' ? 'bg-orange-100 text-orange-600 shadow-sm shadow-orange-100' : 'bg-green-100 text-green-600 shadow-sm shadow-green-100'}`}>
-                    {p.estado}
-                  </span>
-                  <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Prioridade: {p.tipo}</span>
-                  <span className="text-[10px] text-gray-300 font-bold ml-auto lg:ml-0">GUIA #{p.id.toString().padStart(5, '0')}</span>
+                <div className="flex items-center gap-3 mb-3">
+                  <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${
+                    p.estado === 'Pendente' ? 'bg-amber-100 text-amber-700' : p.estado === 'Concluído' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                  }`}>● {p.estado}</span>
+                  <span className="text-[10px] font-bold text-slate-300 tracking-widest">REF: #{p.id}</span>
+                  <span className="text-[10px] font-bold text-slate-300 italic">{new Date(p.created_at).toLocaleDateString('pt-PT')}</span>
                 </div>
-                <h3 className="text-2xl font-black text-[#0f172a] uppercase tracking-tighter mb-1">{p.contactos?.nome}</h3>
-                <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-4 italic">{p.contactos?.departamento}</p>
-                
-                <div className="bg-[#f8fafc] p-5 rounded-3xl border border-gray-100">
-                  <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest mb-2 italic">Material Solicitado / Observações:</p>
-                  <p className="text-sm text-gray-600 font-medium leading-relaxed leading-relaxed">
-                    {p.observacao} <br/>
-                    <span className="text-[#1e3a8a] font-black mt-2 inline-block">— {p.requisitante}</span>
-                  </p>
-                </div>
+                <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{p.contactos?.nome || "Unidade"}</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase mt-1">Requisitante: <span className="text-slate-600">{p.requisitante}</span></p>
               </div>
-              
-              <div className="flex flex-col gap-3 min-w-[220px] w-full lg:w-auto">
-                {p.estado === 'Pendente' ? (
-                  <button 
-                    onClick={() => mudarEstado(p.id, 'Completo')} 
-                    className="w-full bg-[#1e3a8a] text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-200 hover:bg-blue-800 transition-all active:scale-95"
-                  >
-                    Fechar Pedido
-                  </button>
-                ) : (
-                  <button 
-                    onClick={() => router.push(`/dashboard/pedidos/guia/${p.id}`)}
-                    className="w-full bg-white border-4 border-[#1e3a8a] text-[#1e3a8a] py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
-                  >
-                    📄 Ver Guia Transporte
-                  </button>
+
+              <div className="flex flex-wrap gap-2 w-full md:w-auto justify-center">
+                {p.estado === 'Pendente' && (
+                  <button onClick={() => router.push(`/dashboard/pedidos/processar/${p.id}`)} className="bg-[#1e3a8a] text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Processar Stock</button>
                 )}
-                <button 
-                  onClick={async () => { if(confirm("Eliminar?")) await supabase.from("pedidos").delete().eq("id", p.id); carregarDados(); }}
-                  className="w-full py-3 text-red-300 hover:text-red-500 font-black text-[9px] uppercase tracking-widest transition-colors"
-                >
-                  Eliminar Registo
-                </button>
+                {p.estado === 'Processado' && (
+                  <>
+                    <button onClick={() => gerarGuiaPDF(p)} className="bg-slate-100 text-slate-600 px-6 py-4 rounded-2xl font-black text-[10px] uppercase hover:bg-slate-200">🖨️ Guia</button>
+                    <button onClick={() => mudarEstado(p.id, "Concluído")} className="bg-green-600 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Concluir Entrega</button>
+                  </>
+                )}
+                {p.estado === 'Concluído' && (
+                  <button onClick={() => gerarGuiaPDF(p)} className="bg-green-50 text-green-600 border border-green-200 px-8 py-4 rounded-2xl font-black text-[10px] uppercase italic">🖨️ Re-imprimir</button>
+                )}
+                <button onClick={async () => { if(confirm("Apagar?")) { await supabase.from("pedidos").delete().eq("id", p.id); carregarDados(); } }} className="text-red-200 hover:text-red-500 text-[9px] font-black uppercase ml-4 transition-colors">Eliminar</button>
               </div>
             </div>
-          ))}
-        </div>
-      </main>
+          ))
+        )}
+      </div>
 
-      {/* MODAL GOURMET */}
+      {/* MODAL NOVO PEDIDO */}
       {modalAberto && (
-        <div className="fixed inset-0 bg-[#0f172a]/80 backdrop-blur-md flex items-center justify-center z-50 p-6">
-          <div className="bg-white rounded-[3rem] p-10 w-full max-w-xl shadow-2xl border-4 border-white overflow-hidden relative">
-             <div className="absolute top-0 right-0 p-8 opacity-10 text-8xl font-black italic select-none">TICKET</div>
-             <h2 className="text-2xl font-black text-[#1e3a8a] mb-8 uppercase italic tracking-tighter relative">Novo Pedido Economato</h2>
-             
-             <form onSubmit={criarTicket} className="space-y-5 relative">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest block mb-2">Pessoa Requisitante</label>
-                    <input required type="text" value={formulario.requisitante} onChange={e => setFormulario({...formulario, requisitante: e.target.value})} className="w-full border-2 border-gray-50 p-4 rounded-2xl font-bold text-sm outline-none focus:border-[#1e3a8a]" placeholder="Ex: Eng. Silva" />
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest block mb-2">Urgência</label>
-                    <select value={formulario.tipo} onChange={e => setFormulario({...formulario, tipo: e.target.value})} className="w-full border-2 border-gray-50 p-4 rounded-2xl font-bold bg-white text-sm outline-none">
-                      <option value="Normal">Normal</option>
-                      <option value="Urgente">Urgente</option>
-                      <option value="Reposição">Reposição</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest block mb-2">Lota / Destino Final</label>
-                  <select required value={formulario.contacto_id} onChange={e => setFormulario({...formulario, contacto_id: e.target.value})} className="w-full border-2 border-gray-50 p-4 rounded-2xl font-black text-sm bg-[#f8fafc] text-[#1e3a8a] outline-none">
-                    <option value="">-- Selecionar Destino do Livro --</option>
-                    {contactos.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.departamento})</option>)}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest block mb-2">Descrição Detalhada do Material</label>
-                  <textarea required rows={4} value={formulario.observacao} onChange={e => setFormulario({...formulario, observacao: e.target.value})} className="w-full border-2 border-gray-50 p-4 rounded-2xl font-bold text-sm outline-none focus:border-[#1e3a8a]" placeholder="Liste aqui as quantidades e nomes dos materiais..."></textarea>
-                </div>
-
-                <div className="flex gap-4 pt-4">
-                  <button type="button" onClick={() => setModalAberto(false)} className="flex-1 py-4 bg-gray-50 text-gray-400 rounded-2xl font-black uppercase text-[10px] tracking-widest">Voltar</button>
-                  <button type="submit" className="flex-1 py-4 bg-[#1e3a8a] text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-blue-200">Emitir Pedido</button>
-                </div>
-             </form>
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-[3rem] p-10 w-full max-w-lg shadow-2xl border-4 border-white">
+            <h2 className="text-2xl font-black text-[#1e3a8a] mb-6 uppercase italic tracking-tighter">Novo Pedido Economato</h2>
+            <form onSubmit={criarTicket} className="space-y-4">
+              <select required value={formulario.id_destino} onChange={e => setFormulario({...formulario, id_destino: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold text-sm focus:ring-2 ring-blue-500">
+                <option value="">-- Unidade de Destino --</option>
+                {listaContatos.map(c => <option key={c.id} value={c.id}>{c.nome.toUpperCase()}</option>)}
+              </select>
+              <input required type="text" value={formulario.quem_pede} onChange={e => setFormulario({...formulario, quem_pede: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold text-sm" placeholder="Nome do Requisitante" />
+              <textarea required rows={3} value={formulario.texto_pedido} onChange={e => setFormulario({...formulario, texto_pedido: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold text-sm" placeholder="O que é necessário?"></textarea>
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setModalAberto(false)} className="flex-1 py-4 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase text-[10px]">Cancelar</button>
+                <button type="submit" className="flex-1 py-4 bg-[#1e3a8a] text-white rounded-2xl font-black uppercase text-[10px] shadow-lg">Emitir</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }

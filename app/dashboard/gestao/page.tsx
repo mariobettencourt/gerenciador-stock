@@ -13,6 +13,10 @@ export default function GestaoStock() {
   const [cargo, setCargo] = useState<string | null>(null);
   const [emailUtilizador, setEmailUtilizador] = useState("");
 
+  // NOVO: Estados para os Filtros
+  const [pesquisa, setPesquisa] = useState("");
+  const [categoriaSelecionada, setCategoriaSelecionada] = useState("Todas");
+
   useEffect(() => {
     const carregar = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -57,55 +61,82 @@ export default function GestaoStock() {
     }
   };
 
+  const isAdmin = cargo ? cargo.toLowerCase().includes("admin") : false;
+
+  // NOVO: Lógica de Filtragem (Categorias Automáticas + Pesquisa)
+  const categoriasUnicas = ["Todas", ...Array.from(new Set(produtos.map(p => p.categoria || "Sem Categoria")))];
+  const produtosFiltrados = produtos.filter(p => {
+    const correspondeTexto = p.nome.toLowerCase().includes(pesquisa.toLowerCase());
+    const correspondeCategoria = categoriaSelecionada === "Todas" || (p.categoria || "Sem Categoria") === categoriaSelecionada;
+    return correspondeTexto && correspondeCategoria;
+  });
+
   return (
     <div className="flex h-screen bg-[#f8fafc] font-sans">
-      {/* SIDEBAR GOURMET - VOLTAR ATRÁS INTEGRADO */}
-      <aside className="w-72 bg-gradient-to-b from-[#0f172a] to-[#1e3a8a] text-white flex flex-col shadow-xl">
-        <div className="p-8 mb-4 flex items-center gap-3">
-          <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/20 text-2xl font-bold italic">🧊</div>
-          <div>
-            <h1 className="text-xl font-black tracking-tighter leading-none italic uppercase font-sans">Lotaçor</h1>
-            <p className="text-[9px] font-bold text-blue-300 tracking-[0.3em] uppercase">Economato</p>
-          </div>
-        </div>
-        <nav className="flex-1 px-4 space-y-1">
-          <button onClick={() => router.push("/dashboard")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-blue-100 hover:bg-white/10 transition-all uppercase text-[11px] tracking-widest text-left"><span>🏠</span> Inventário</button>
-          <button onClick={() => router.push("/dashboard/gestao")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl bg-white text-[#1e3a8a] shadow-lg font-bold uppercase text-[11px] tracking-widest text-left"><span>📦</span> Gestão Stock</button>
-          <button onClick={() => router.push("/dashboard/pedidos")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-blue-100 hover:bg-white/10 transition-all uppercase text-[11px] tracking-widest text-left"><span>📋</span> Pedidos</button>
-          <button onClick={() => router.push("/dashboard/contactos")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-blue-100 hover:bg-white/10 transition-all uppercase text-[11px] tracking-widest text-left"><span>📇</span> Contactos</button>
-          <button onClick={() => router.push("/dashboard/movimentos")} className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl text-blue-100 hover:bg-white/10 transition-all uppercase text-[11px] tracking-widest text-left"><span>🔄</span> Movimentos</button>
-        </nav>
-        <div className="m-6 p-4 bg-white/5 border border-white/10 rounded-[2rem] text-[10px]">
-          <p className="font-black text-blue-300 uppercase mb-1 tracking-widest leading-none">{cargo || "Carregando..."}</p>
-          <p className="opacity-70 truncate mb-4 font-medium">{emailUtilizador}</p>
-          <button onClick={async () => { await supabase.auth.signOut(); router.push("/"); }} className="w-full py-3 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white rounded-xl font-black uppercase transition-all duration-300">Sair</button>
-        </div>
-      </aside>
 
       {/* ÁREA DE OPERAÇÃO */}
       <main className="flex-1 p-12 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-12">
-        {/* COLUNA ESQUERDA: SELEÇÃO */}
-        <div className="bg-white rounded-[2.5rem] shadow-xl shadow-blue-900/[0.03] flex flex-col overflow-hidden border border-white">
-          <div className="p-6 bg-[#f8fafc] border-b font-black text-[10px] uppercase text-[#1e3a8a] tracking-[0.2em] flex justify-between items-center">
-            <span>1. Selecionar Material</span>
-            <span className="bg-blue-100 text-[#1e3a8a] px-3 py-1 rounded-full">{produtos.length} Itens</span>
+        
+        {/* COLUNA ESQUERDA: SELEÇÃO COM FILTROS */}
+        <div className="bg-white rounded-[2.5rem] shadow-xl shadow-blue-900/[0.03] flex flex-col overflow-hidden border border-white h-full max-h-[calc(100vh-6rem)]">
+          <div className="p-6 bg-[#f8fafc] border-b space-y-4">
+            <div className="font-black text-[10px] uppercase text-[#1e3a8a] tracking-[0.2em] flex justify-between items-center">
+              <span>1. Selecionar Material</span>
+              <span className="bg-blue-100 text-[#1e3a8a] px-3 py-1 rounded-full">{produtosFiltrados.length} Itens</span>
+            </div>
+            
+            {/* Barra de Pesquisa */}
+            <input 
+              type="text" 
+              placeholder="Pesquisar artigo..." 
+              value={pesquisa}
+              onChange={(e) => setPesquisa(e.target.value)}
+              className="w-full px-5 py-3 rounded-xl bg-white border border-gray-200 outline-none focus:border-[#1e3a8a] focus:ring-2 focus:ring-blue-50 text-xs font-medium transition-all shadow-sm"
+            />
+
+            {/* Categorias */}
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              {categoriasUnicas.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setCategoriaSelecionada(cat)}
+                  className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${
+                    categoriaSelecionada === cat
+                      ? 'bg-[#1e3a8a] text-white shadow-md'
+                      : 'bg-white border border-gray-200 text-gray-400 hover:text-[#1e3a8a] hover:bg-blue-50'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
           </div>
+
           <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
-            {produtos.map(p => (
-              <button 
-                key={p.id} 
-                onClick={() => { setSelecionado(p); setQuantidade(0); }} 
-                className={`w-full text-left p-6 hover:bg-blue-50/50 transition-all group ${selecionado?.id === p.id ? 'bg-blue-50 border-l-8 border-[#1e3a8a]' : ''}`}
-              >
-                <span className="block font-black text-[#0f172a] text-sm uppercase tracking-tighter group-hover:text-[#1e3a8a]">{p.nome}</span>
-                <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">{p.local} | Stock Atual: <span className="text-[#1e3a8a]">{p.quantidade}</span></span>
-              </button>
-            ))}
+            {produtosFiltrados.length === 0 ? (
+              <div className="p-12 text-center text-gray-300 font-bold uppercase text-[10px] tracking-widest">
+                Nenhum material encontrado.
+              </div>
+            ) : (
+              produtosFiltrados.map(p => (
+                <button 
+                  key={p.id} 
+                  onClick={() => { setSelecionado(p); setQuantidade(0); }} 
+                  className={`w-full text-left p-6 hover:bg-blue-50/50 transition-all group ${selecionado?.id === p.id ? 'bg-blue-50 border-l-8 border-[#1e3a8a]' : ''}`}
+                >
+                  <span className="block font-black text-[#0f172a] text-sm uppercase tracking-tighter group-hover:text-[#1e3a8a]">{p.nome}</span>
+                  <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest mt-1 block">
+                    {p.categoria || "Geral"} | {p.local} <br className="lg:hidden" />
+                    <span className="lg:ml-2">Stock Atual: <span className="text-[#1e3a8a]">{p.quantidade}</span></span>
+                  </span>
+                </button>
+              ))
+            )}
           </div>
         </div>
 
-        {/* COLUNA DIREITA: FORMULÁRIO */}
-        <div className="bg-white rounded-[3rem] shadow-2xl p-12 flex flex-col justify-center border border-white relative overflow-hidden">
+        {/* COLUNA DIREITA: FORMULÁRIO (Mantido exatamente igual) */}
+        <div className="bg-white rounded-[3rem] shadow-2xl p-12 flex flex-col justify-center border border-white relative overflow-hidden h-full">
           <div className="absolute top-0 right-0 p-12 opacity-[0.03] text-9xl font-black italic -rotate-12 select-none pointer-events-none text-blue-900 uppercase">
             {tipo}
           </div>
