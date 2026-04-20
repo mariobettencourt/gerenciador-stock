@@ -56,6 +56,7 @@ export default function AdminInventario() {
       quantidade: novoArtigo.quantidade,
       preco: novoArtigo.preco || 0,
       stock_minimo: novoArtigo.stock_minimo || 0
+      custo_unitario: novoArtigo.preco || 0 // No insert da tabela movimentos
     }]).select().single();
 
     if (error) {
@@ -82,8 +83,8 @@ export default function AdminInventario() {
     e.preventDefault();
     
     // 1. Identificar o artigo original para calcular a diferença de stock
-    const artigoOriginal = produtos.find(p => p.id === artigoEmEdicao.id);
-    const diffQuantidade = (artigoEmEdicao.quantidade || 0) - (artigoOriginal?.quantidade || 0);
+const artigoOriginal = produtos.find(p => p.id === artigoEmEdicao.id);
+const diffQtd = artigoEmEdicao.quantidade - (artigoOriginal?.quantidade || 0);
 
     const { error } = await supabase.from("produtos").update({
       nome: artigoEmEdicao.nome,
@@ -98,13 +99,13 @@ export default function AdminInventario() {
       alert("Erro ao guardar edição: " + error.message);
     } else {
       await supabase.from("movimentos").insert({
-        tipo: "Edição",
-        utilizador: userId,
-        produto_id: artigoEmEdicao.id,
-        quantidade: diffQuantidade, // Regista quanto aumentou ou diminuiu
-        custo_unitario: artigoEmEdicao.preco || 0, // Snapshot do novo preço
-        observacao: `Alterou detalhes do artigo "${artigoEmEdicao.nome}". (Var: ${diffQuantidade})`
-      });
+  tipo: "Edição",
+  utilizador: userId,
+  produto_id: artigoEmEdicao.id,
+  quantidade: diffQtd,
+  custo_unitario: artigoEmEdicao.preco || 0, // <-- SNAPSHOT
+  observacao: `Correção manual de stock.`
+});
 
       setArtigoEmEdicao(null); 
       setNovaCatEditar(false); setNovoLocEditar(false);
