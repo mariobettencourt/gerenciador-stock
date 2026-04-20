@@ -43,7 +43,15 @@ export default function Sidebar() {
   <button onClick={() => router.push("/dashboard/contactos")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname === "/dashboard/contactos" ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>📇</span> Contactos</button>
   <button onClick={() => router.push("/dashboard/reposicao")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname.includes("/dashboard/reposicao") ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>🛒</span> Necessidades</button>
   <button onClick={() => router.push("/dashboard/relatorios")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname.includes("/dashboard/relatorios") ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>📊</span> Relatórios</button>
-  
+  <button 
+  onClick={() => router.push('/dashboard/perfil')}
+  className="flex items-center gap-3 w-full p-4 hover:bg-slate-100 rounded-2xl transition-all group"
+>
+  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center group-hover:bg-[#1e3a8a] group-hover:text-white transition-colors">
+    👤
+  </div>
+  <span className="font-bold text-sm text-slate-600 group-hover:text-[#1e3a8a]">O Meu Perfil</span>
+</button>
   {isAdmin && (
     <div className="mt-8 pt-4 border-t border-white/20">
       <button 
@@ -53,7 +61,12 @@ export default function Sidebar() {
         <span>⚙️</span> Painel Admin
       </button>
     </div>
+
+
+
   )}
+
+  
 </nav>
       
       <div className="m-6 p-4 bg-white/5 border border-white/10 rounded-[2rem] text-[10px]">
