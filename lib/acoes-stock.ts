@@ -1,41 +1,69 @@
 import { supabase } from "./supabase";
 
 /**
- * Processa a saída de stock registando o movimento com snapshot de preço
- * e atualizando a quantidade na tabela de produtos.
+ * PROCESSAMENTO FIFO
+ * Esta função abate stock consumindo primeiro as entradas mais antigas.
  */
-export async function processarSaida(
+export async function processarSaidaFIFO(
   produtoId: number, 
-  qtd: number, 
-  destino: string, 
-  utilizadorId: string, 
-  preco: number // <-- NOVO ARGUMENTO PARA O SNAPSHOT
+  qtdTotalARetirar: number, 
+  utilizadorId: string,
+  pedidoId?: number
 ) {
-  // 1. Regista o Movimento (Auditoria) COM O PREÇO NO MOMENTO
-  const { error: errMov } = await supabase
+  // 1. Ir buscar todas as entradas/criações deste produto que ainda tenham stock (FIFO)
+  const { data: lotes, error: errLotes } = await supabase
     .from("movimentos")
-    .insert({
-      produto_id: produtoId,
-      quantidade: -Math.abs(qtd), // Garante que a saída é registada como número negativo
-      tipo: "Saída",
-      destino: destino,
-      utilizador: utilizadorId,
-      custo_unitario: preco // <-- SNAPSHOT DE PREÇO AQUI
-    });
+    .select("*")
+    .eq("produto_id", produtoId)
+    .in("tipo", ["Entrada", "Criação"])
+    .gt("quantidade_restante", 0)
+    .order("created_at", { ascending: true }); // O mais antigo primeiro (First-In)
 
-  if (errMov) return { success: false, error: errMov.message };
+  if (errLotes || !lotes) throw new Error("Não foi possível encontrar lotes de stock.");
 
-  // 2. Atualiza o Stock Real (Utilizando a função RPC que já tens no Supabase)
-  // Nota: Certifica-te que a função rpc 'deduzir_stock' trata a quantidade corretamente
-  const { error: errProd } = await supabase.rpc('deduzir_stock', { 
-    p_id: produtoId, 
-    p_qtd: Math.abs(qtd) 
-  });
+  let restanteParaRetirar = qtdTotalARetirar;
+  let custoTotalDestaSaida = 0;
 
-  if (errProd) {
-    console.error("Erro ao deduzir stock via RPC:", errProd.message);
-    return { success: false, error: errProd.message };
+  // 2. Loop pelos lotes para consumir o stock
+  for (const lote of lotes) {
+    if (restanteParaRetirar <= 0) break;
+
+    const quantidadeNesteLote = lote.quantidade_restante;
+    const aRetirarDesteLote = Math.min(quantidadeNesteLote, restanteParaRetirar);
+    const precoDesteLote = lote.custo_unitario || 0;
+
+    // Atualizar o lote original (diminuir a quantidade_restante)
+    await supabase
+      .from("movimentos")
+      .update({ quantidade_restante: quantidadeNesteLote - aRetirarDesteLote })
+      .eq("id", lote.id);
+
+    custoTotalDestaSaida += (aRetirarDesteLote * precoDesteLote);
+    restanteParaRetirar -= aRetirarDesteLote;
   }
 
-  return { success: true };
+  if (restanteParaRetirar > 0) {
+    throw new Error("Stock insuficiente nos lotes para satisfazer o pedido!");
+  }
+
+  // 3. Registar o movimento de Saída final com o custo médio real destes lotes
+  const custoUnitarioMedio = custoTotalDestaSaida / qtdTotalARetirar;
+
+  const { error: errSaida } = await supabase.from("movimentos").insert({
+    produto_id: produtoId,
+    quantidade: -qtdTotalARetirar,
+    tipo: "Saída",
+    utilizador: utilizadorId,
+    pedido_id: pedidoId,
+    custo_unitario: custoUnitarioMedio,
+    observacao: `Saída FIFO (Lotes consumidos).`
+  });
+
+  // 4. Atualizar o stock total na tabela de produtos (para consulta rápida)
+  const { data: prod } = await supabase.from("produtos").select("quantidade").eq("id", produtoId).single();
+  await supabase.from("produtos").update({ 
+    quantidade: (prod?.quantidade || 0) - qtdTotalARetirar 
+  }).eq("id", produtoId);
+
+  return { success: true, custoTotal: custoTotalDestaSaida };
 }

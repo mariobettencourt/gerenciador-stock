@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase"; // Ajusta o caminho do import se necessário
+import { supabase } from "@/lib/supabase";
 
 export default function InventarioGeral() {
   const router = useRouter();
@@ -24,7 +24,6 @@ export default function InventarioGeral() {
     const inicializar = async () => {
       await carregarProdutos();
       
-      // Capturar o ID de quem está a mexer para a Auditoria
       const { data } = await supabase.auth.getUser();
       if (data?.user?.id) {
         setUserId(data.user.id);
@@ -42,7 +41,6 @@ export default function InventarioGeral() {
     setACarregar(false);
   };
 
-  // Dinâmicas para os menus suspensos (Categorias e Locais Únicos)
   const categoriasUnicas = Array.from(new Set(produtos.map(p => p.categoria).filter(Boolean)));
   if (categoriasUnicas.length === 0) categoriasUnicas.push("Geral");
 
@@ -51,11 +49,11 @@ export default function InventarioGeral() {
 
   const categoriasParaFiltro = ["Todas", ...Array.from(new Set(produtos.map(p => p.categoria || "Geral"))).sort()];
 
-// --- AÇÃO: CRIAR NOVO ARTIGO ---
+  // --- AÇÃO: CRIAR NOVO ARTIGO (COM SNAPSHOT DE PREÇO) ---
   const criarArtigo = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 1. Insere o produto
+    // 1. Insere o produto na tabela 'produtos'
     const { data: produtoCriado, error } = await supabase.from("produtos").insert([{
       nome: novoArtigo.nome,
       categoria: novoArtigo.categoria,
@@ -67,14 +65,14 @@ export default function InventarioGeral() {
     if (error) {
       alert("Erro ao criar artigo: " + error.message);
     } else {
-      // 2. Regista na Auditoria COM O SNAPSHOT DO PREÇO
+      // 2. Regista na Auditoria COM O SNAPSHOT DO PREÇO (custo_unitario)
       await supabase.from("movimentos").insert({
         tipo: "Criação",
         utilizador: userId,
         produto_id: produtoCriado.id,
         quantidade: novoArtigo.quantidade,
-        custo_unitario: novoArtigo.preco || 0, // <-- SNAPSHOT AQUI
-        observacao: `Adicionou o artigo "${novoArtigo.nome}" ao catálogo.`
+        custo_unitario: novoArtigo.preco || 0, // <--- O SNAPSHOT É ESSENCIAL AQUI
+        observacao: `Adicionou o artigo "${novoArtigo.nome}" ao catálogo através do Inventário.`
       });
 
       setModalCriar(false);
@@ -84,7 +82,6 @@ export default function InventarioGeral() {
     }
   };
 
-  // Filtros Visuais
   const produtosFiltrados = produtos.filter(p => {
     const bateCertoPesquisa = p.nome.toLowerCase().includes(pesquisa.toLowerCase());
     const bateCertoCategoria = categoriaFiltro === "Todas" || (p.categoria || "Geral") === categoriaFiltro;
@@ -95,7 +92,6 @@ export default function InventarioGeral() {
     <main className="min-h-screen bg-slate-50 p-8 md:p-12 font-sans text-slate-800">
       <div className="max-w-7xl mx-auto">
         
-        {/* CABEÇALHO */}
         <header className="mb-10 flex flex-col md:flex-row justify-between md:items-end gap-6">
           <div>
             <button onClick={() => router.push("/dashboard")} className="text-slate-400 hover:text-[#1e3a8a] transition-colors text-[10px] font-black uppercase tracking-widest flex items-center gap-2 mb-4">
@@ -124,7 +120,6 @@ export default function InventarioGeral() {
           </div>
         </header>
 
-        {/* FILTROS DE CATEGORIA */}
         <div className="flex gap-2 overflow-x-auto pb-4 mb-6 scrollbar-hide">
           {categoriasParaFiltro.map(cat => (
             <button 
@@ -140,7 +135,6 @@ export default function InventarioGeral() {
           ))}
         </div>
 
-        {/* LISTA DE PRODUTOS */}
         <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden">
           {aCarregar ? (
             <div className="p-20 text-center text-blue-500 font-black uppercase tracking-widest animate-pulse text-xs">
@@ -163,17 +157,13 @@ export default function InventarioGeral() {
               <tbody className="divide-y divide-slate-50">
                 {produtosFiltrados.map((p) => (
                   <tr key={p.id} className="hover:bg-blue-50/30 transition-colors group">
-                    <td className="p-5 pl-8 font-black text-slate-800 uppercase text-sm">
-                      {p.nome}
-                    </td>
+                    <td className="p-5 pl-8 font-black text-slate-800 uppercase text-sm">{p.nome}</td>
                     <td className="p-5">
                       <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest">
                         {p.categoria || "Geral"}
                       </span>
                     </td>
-                    <td className="p-5 text-xs font-bold text-slate-400 uppercase">
-                      📍 {p.local}
-                    </td>
+                    <td className="p-5 text-xs font-bold text-slate-400 uppercase">📍 {p.local}</td>
                     <td className="p-5 text-right pr-8">
                       <span className={`text-lg font-black ${p.quantidade <= 5 ? 'text-red-500' : 'text-[#1e3a8a]'}`}>
                         {p.quantidade} <span className="text-[10px] text-slate-400">UN.</span>
@@ -193,20 +183,18 @@ export default function InventarioGeral() {
           <div className="bg-white rounded-[3.5rem] p-12 w-full max-w-xl shadow-2xl animate-in fade-in zoom-in duration-200">
              <h2 className="text-2xl font-black text-[#0f172a] mb-2 uppercase italic tracking-tighter">Registar <span className="text-[#1e3a8a]">Artigo</span></h2>
              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8 pb-4 border-b border-slate-100">Adicionar novo material ao Economato</p>
-             
              <form onSubmit={criarArtigo} className="space-y-5">
                 <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase block mb-1.5 px-1 tracking-widest">Nome do Artigo</label>
                   <input required type="text" value={novoArtigo.nome} onChange={e => setNovoArtigo({...novoArtigo, nome: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500/30 focus:bg-white transition-all outline-none font-bold text-sm text-[#0f172a]" placeholder="Ex: Esferográfica Azul" />
                 </div>
-                
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-[9px] font-black text-slate-400 uppercase block mb-1.5 px-1 tracking-widest">Categoria</label>
                     {novaCat ? (
                       <div className="flex gap-2">
                         <input autoFocus required type="text" value={novoArtigo.categoria} onChange={e => setNovoArtigo({...novoArtigo, categoria: e.target.value})} className="w-full p-4 rounded-2xl bg-blue-50 border-2 border-transparent outline-none font-bold text-sm" placeholder="Nova..." />
-                        <button type="button" onClick={() => { setNovaCat(false); setNovoArtigo({...novoArtigo, categoria: categoriasUnicas[0]}) }} className="px-4 bg-slate-100 text-slate-500 rounded-xl font-black hover:bg-slate-200">X</button>
+                        <button type="button" onClick={() => setNovaCat(false)} className="px-4 bg-slate-100 text-slate-500 rounded-xl font-black hover:bg-slate-200">X</button>
                       </div>
                     ) : (
                       <select required value={novoArtigo.categoria} onChange={e => {
@@ -214,11 +202,10 @@ export default function InventarioGeral() {
                         else { setNovoArtigo({...novoArtigo, categoria: e.target.value}); }
                       }} className="w-full p-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:bg-white transition-all outline-none font-bold text-sm text-[#1e3a8a]">
                         {categoriasUnicas.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                        <option value="NOVA" className="bg-blue-100 text-blue-800">➕ Criar Nova Categoria...</option>
+                        <option value="NOVA" className="bg-blue-100 text-blue-800">➕ Criar Nova...</option>
                       </select>
                     )}
                   </div>
-
                   <div>
                     <label className="text-[9px] font-black text-slate-400 uppercase block mb-1.5 px-1 tracking-widest">Localização</label>
                     {novoLoc ? (
@@ -237,7 +224,6 @@ export default function InventarioGeral() {
                     )}
                   </div>
                 </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-[9px] font-black text-slate-400 uppercase block mb-1.5 px-1 tracking-widest">Stock de Abertura</label>
@@ -248,7 +234,6 @@ export default function InventarioGeral() {
                     <input type="number" step="0.01" min="0" value={novoArtigo.preco} onChange={e => setNovoArtigo({...novoArtigo, preco: parseFloat(e.target.value) || 0})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-black text-lg text-slate-800" />
                   </div>
                 </div>
-                
                 <div className="flex gap-4 pt-4">
                   <button type="button" onClick={() => setModalCriar(false)} className="flex-1 py-5 bg-slate-100 text-slate-500 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-colors">Cancelar</button>
                   <button type="submit" className="flex-[2] py-5 bg-[#1e3a8a] text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-blue-800 transition-all">Adicionar ao Catálogo</button>

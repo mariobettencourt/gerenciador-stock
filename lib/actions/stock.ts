@@ -1,15 +1,24 @@
-import { createClient } from '@/utils/supabase/server'; // Importa a ligação ao Supabase
-import { revalidatePath } from 'next/cache'; // Serve para atualizar a página automaticamente
+"use server";
+
+// IMPORTAÇÃO CORRIGIDA: Aponta para o ficheiro que tu já tens no projeto!
+import { supabase } from '@/lib/supabase'; 
+import { revalidatePath } from 'next/cache';
 
 export async function registarSaidaStock(formData: FormData) {
-  const supabase = await createClient();
+  // Já não precisamos do 'const supabase = await createClient()' 
+  // porque já importámos a variável 'supabase' diretamente acima.
 
-  // 1. Ir buscar os dados que o utilizador escreveu no formulário
-  const produtoId = formData.get('produtoId');
-  const qtdParaRetirar = Number(formData.get('quantidade'));
-  const destino = formData.get('destino');
+  const produtoId = formData.get('produtoId')?.toString();
+  const quantidadeRaw = formData.get('quantidade');
+  const destino = formData.get('destino')?.toString();
 
-  // 2. Primeiro Passo: Registar na tabela de MOVIMENTOS (Auditoria)
+  const qtdParaRetirar = Number(quantidadeRaw);
+
+  if (!produtoId || !qtdParaRetirar || isNaN(qtdParaRetirar)) {
+    return { error: "Dados inválidos. Verifique o formulário." };
+  }
+
+  // 1. Registar na tabela de MOVIMENTOS (Auditoria)
   const { error: erroMovimento } = await supabase
     .from('movimentos')
     .insert([
@@ -17,7 +26,7 @@ export async function registarSaidaStock(formData: FormData) {
         produto_id: produtoId, 
         quantidade: qtdParaRetirar, 
         tipo: 'saida', 
-        destino: destino,
+        destino: destino, // Certifica-te que tens esta coluna na BD!
         data_movimento: new Date().toISOString()
       }
     ]);
@@ -27,24 +36,31 @@ export async function registarSaidaStock(formData: FormData) {
     return { error: "Não foi possível registar o movimento." };
   }
 
-  // 3. Segundo Passo: Atualizar a tabela de PRODUTOS (Baixar o stock)
-  // Nota: Isto é uma versão simplificada. Depois podemos fazer um cálculo mais seguro.
-  const { data: produtoAtual } = await supabase
+  // 2. Atualizar a tabela de PRODUTOS (Baixar o stock)
+  const { data: produtoAtual, error: erroFetchProduto } = await supabase
     .from('produtos')
     .select('quantidade')
     .eq('id', produtoId)
     .single();
 
+  if (erroFetchProduto) {
+    return { error: "Produto não encontrado." };
+  }
+
   if (produtoAtual) {
     const novaQuantidade = produtoAtual.quantidade - qtdParaRetirar;
 
-    await supabase
+    const { error: erroUpdate } = await supabase
       .from('produtos')
       .update({ quantidade: novaQuantidade })
       .eq('id', produtoId);
+      
+    if (erroUpdate) {
+        return { error: "Falha ao atualizar o stock final." };
+    }
   }
 
-  // 4. Atualizar o ecrã do utilizador para mostrar os novos valores
+  // Atualizar o ecrã
   revalidatePath('/');
   return { success: true };
 }
