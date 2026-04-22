@@ -8,14 +8,13 @@ export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   
-  const [cargo, setCargo] = useState<string>("A carregar...");
-  const [email, setEmail] = useState<string>("");
+  const [cargo, setCargo] = useState<string>("");
+  const [relatoriosAberto, setRelatoriosAberto] = useState(pathname.includes("/dashboard/relatorios"));
 
   useEffect(() => {
     const carregarPerfil = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.email) {
-        setEmail(user.email);
         const { data: perfil } = await supabase.from("perfis").select("cargo").eq("email", user.email).single();
         if (perfil) setCargo(perfil.cargo);
       }
@@ -23,56 +22,91 @@ export default function Sidebar() {
     carregarPerfil();
   }, []);
 
+  // Sincronização: Fecha o menu se mudarmos para uma página que não seja relatório
+  useEffect(() => {
+    if (!pathname.includes("/dashboard/relatorios")) {
+      setRelatoriosAberto(false);
+    } else {
+      setRelatoriosAberto(true);
+    }
+  }, [pathname]);
+
   const isAdmin = cargo ? cargo.toLowerCase().includes("admin") : false;
 
+  // Função para estilização dinâmica dos botões
+  const btnClass = (rota: string) => `w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all uppercase text-[10px] tracking-widest text-left ${
+    pathname === rota ? 'bg-white text-[#1e3a8a] shadow-md font-bold' : 'text-blue-100 hover:bg-white/10'
+  }`;
+
+  // Lógica de Navegação e Toggle dos Relatórios
+  const manejarCliqueRelatorios = () => {
+    if (pathname.includes("/dashboard/relatorios")) {
+      // Se já lá estamos, apenas abre/fecha
+      setRelatoriosAberto(!relatoriosAberto);
+    } else {
+      // Se viermos de fora, abre e navega
+      setRelatoriosAberto(true);
+      router.push("/dashboard/relatorios");
+    }
+  };
+
   return (
-    <aside className="w-72 bg-gradient-to-b from-[#0f172a] to-[#1e3a8a] text-white flex flex-col shadow-2xl shrink-0 h-screen z-50">
-      <div className="p-8 mb-4 flex items-center gap-3">
-        <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/20 text-2xl font-bold italic">🧊</div>
-        <div>
-          <h1 className="text-xl font-black tracking-tighter leading-none italic uppercase font-sans">Lotaçor</h1>
-          <p className="text-[9px] font-bold text-blue-300 tracking-[0.3em] uppercase">Economato</p>
-        </div>
+    <aside className="w-64 bg-gradient-to-b from-[#0f172a] to-[#1e3a8a] text-white flex flex-col shadow-2xl shrink-0 h-screen z-50">
+      
+      {/* LOGO COMPACTO */}
+      <div className="p-6 mb-2 flex items-center gap-3 border-b border-white/5">
+        <div className="bg-white/10 p-1.5 rounded-lg border border-white/10 text-xl font-bold italic">🧊</div>
+        <h1 className="text-lg font-black tracking-tighter italic uppercase">Lotaçor</h1>
       </div>
       
-<nav className="flex-1 px-4 space-y-1 overflow-y-auto">
-  <button onClick={() => router.push("/dashboard")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname === "/dashboard" ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>🏠</span> Dashboard</button>
-  <button onClick={() => router.push("/dashboard/inventario")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname === "/dashboard/inventario" ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>🏠</span> Inventário</button>
-  <button onClick={() => router.push("/dashboard/gestao")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname === "/dashboard/gestao" ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>📦</span> Gestão Stock</button>
-  <button onClick={() => router.push("/dashboard/pedidos")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname.includes("/dashboard/pedidos") ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>📋</span> Pedidos</button>
-  <button onClick={() => router.push("/dashboard/contactos")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname === "/dashboard/contactos" ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>📇</span> Contactos</button>
-  <button onClick={() => router.push("/dashboard/reposicao")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname.includes("/dashboard/reposicao") ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>🛒</span> Necessidades</button>
-  <button onClick={() => router.push("/dashboard/relatorios")} className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] tracking-widest text-left ${pathname.includes("/dashboard/relatorios") ? 'bg-white text-[#1e3a8a] shadow-lg font-bold' : 'text-blue-100 hover:bg-white/10'}`}><span>📊</span> Relatórios</button>
-  <button 
-  onClick={() => router.push('/dashboard/perfil')}
-  className="flex items-center gap-3 w-full p-4 hover:bg-slate-100 rounded-2xl transition-all group"
->
-  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center group-hover:bg-[#1e3a8a] group-hover:text-white transition-colors">
-    👤
-  </div>
-  <span className="font-bold text-sm text-slate-600 group-hover:text-[#1e3a8a]">O Meu Perfil</span>
-</button>
-  {isAdmin && (
-    <div className="mt-8 pt-4 border-t border-white/20">
-      <button 
-        onClick={() => router.push("/dashboard/admin")} 
-        className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all uppercase text-[11px] font-bold tracking-widest text-left ${pathname.includes("/dashboard/admin") ? 'bg-amber-500 text-[#0f172a]' : 'text-amber-500 hover:bg-white/10'}`}
-      >
-        <span>⚙️</span> Painel Admin
-      </button>
-    </div>
+      {/* NAVEGAÇÃO PRINCIPAL */}
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-hide">
+        <button onClick={() => router.push("/dashboard")} className={btnClass("/dashboard")}><span>🏠</span> Home</button>
+        <button onClick={() => router.push("/dashboard/inventario")} className={btnClass("/dashboard/inventario")}><span>📋</span> Inventário</button>
+        <button onClick={() => router.push("/dashboard/gestao")} className={btnClass("/dashboard/gestao")}><span>📦</span> Stock</button>
+        <button onClick={() => router.push("/dashboard/pedidos")} className={btnClass("/dashboard/pedidos")}><span>📋</span> Pedidos</button>
+        <button onClick={() => router.push("/dashboard/contactos")} className={btnClass("/dashboard/contactos")}><span>📇</span> Contactos</button>
+        <button onClick={() => router.push("/dashboard/reposicao")} className={btnClass("/dashboard/reposicao")}><span>🛒</span> Reposição</button>
 
+        {/* SECÇÃO RELATÓRIOS EXPANSÍVEL */}
+        <div className="py-1">
+          <button 
+            onClick={manejarCliqueRelatorios} 
+            className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all uppercase text-[10px] tracking-widest text-left ${pathname.includes("/dashboard/relatorios") ? 'bg-white/10 text-white font-bold' : 'text-blue-100 hover:bg-white/10'}`}
+          >
+            <div className="flex items-center gap-3"><span>📊</span> Relatórios</div>
+            <span className={`text-[7px] transition-transform duration-300 ${relatoriosAberto ? 'rotate-180' : ''}`}>▼</span>
+          </button>
 
+          {relatoriosAberto && (
+            <div className="mt-1 ml-6 border-l border-white/10 pl-2 space-y-0.5 animate-in slide-in-from-top-1 duration-200">
+              <button onClick={() => router.push("/dashboard/relatorios/inventario")} className={`w-full text-left px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest ${pathname === "/dashboard/relatorios/inventario" ? 'text-amber-400 font-bold' : 'text-blue-300 hover:text-white'}`}>• Valor</button>
+              <button onClick={() => router.push("/dashboard/relatorios/consumos")} className={`w-full text-left px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest ${pathname === "/dashboard/relatorios/consumos" ? 'text-amber-400 font-bold' : 'text-blue-300 hover:text-white'}`}>• Consumos</button>
+              <button onClick={() => router.push("/dashboard/relatorios/artigos")} className={`w-full text-left px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest ${pathname === "/dashboard/relatorios/artigos" ? 'text-amber-400 font-bold' : 'text-blue-300 hover:text-white'}`}>• Estudo</button>
+              <button onClick={() => router.push("/dashboard/relatorios/compras")} className={`w-full text-left px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest ${pathname === "/dashboard/relatorios/compras" ? 'text-amber-400 font-bold' : 'text-blue-300 hover:text-white'}`}>• Compras</button>
+            </div>
+          )}
+        </div>
 
-  )}
+        <button onClick={() => router.push('/dashboard/perfil')} className={btnClass("/dashboard/perfil")}><span>👤</span> Perfil</button>
 
-  
-</nav>
+        {isAdmin && (
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <button onClick={() => router.push("/dashboard/admin/inventarioadmin")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all uppercase text-[10px] font-bold tracking-widest text-left ${pathname.includes("/dashboard/admin") ? 'bg-amber-500 text-[#0f172a]' : 'text-amber-500 hover:bg-white/10'}`}>
+              <span>⚙️</span> Admin
+            </button>
+          </div>
+        )}
+      </nav>
       
-      <div className="m-6 p-4 bg-white/5 border border-white/10 rounded-[2rem] text-[10px]">
-        <p className="font-black text-blue-300 uppercase mb-1 tracking-widest leading-none">{cargo}</p>
-        <p className="opacity-70 truncate mb-4 font-medium">{email}</p>
-        <button onClick={async () => { await supabase.auth.signOut(); router.push("/"); }} className="w-full py-3 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white rounded-xl font-black uppercase transition-all duration-300">Sair</button>
+      {/* BOTÃO SAIR NO FUNDO */}
+      <div className="p-4 border-t border-white/5">
+        <button 
+          onClick={async () => { await supabase.auth.signOut(); router.push("/"); }} 
+          className="w-full py-3 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+        >
+          <span>🚪</span> Sair
+        </button>
       </div>
     </aside>
   );

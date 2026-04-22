@@ -123,7 +123,7 @@ export default function ProcessarPedido() {
 
         // Verificação de segurança: se ainda sobra quantidade necessária, o stock real não bate certo com os lotes
         if (qtdNecessaria > 0) {
-          alert(`Atenção: Stock insuficiente nos lotes FIFO para o artigo ${linha.nome}. O processamento foi interrompido.`);
+          alert(`Atenção: Stock insuficiente nos lotes para o artigo ${linha.nome}. O processamento foi interrompido.`);
           return;
         }
 
@@ -155,16 +155,16 @@ export default function ProcessarPedido() {
       // 5. Concluir o Pedido
       await supabase.from("pedidos").update({ estado: "Processado" }).eq("id", id);
       
-      alert("✅ Pedido processado via FIFO com sucesso!");
+      alert("✅ Pedido processado com sucesso!");
       router.push("/dashboard/pedidos");
 
     } catch (err: any) {
       console.error(err);
-      alert("Ocorreu um erro catastrófico ao processar o pedido via FIFO.");
+      alert("Ocorreu um erro catastrófico ao processar o pedido.");
     }
   };
 
-  if (aCarregar) return <main className="flex-1 p-12 h-screen flex justify-center items-center font-black uppercase text-[#1e3a8a] animate-pulse">A preparar sistema FIFO...</main>;
+  if (aCarregar) return <main className="flex-1 p-12 h-screen flex justify-center items-center font-black uppercase text-[#1e3a8a] animate-pulse">A preparar sistema...</main>;
 
   return (
     <main className="flex-1 p-12 overflow-y-auto h-screen relative bg-slate-50">

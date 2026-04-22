@@ -69,7 +69,7 @@ export default function GestaoStock() {
       restante -= qtdAbater;
     }
 
-    if (restante > 0) throw new Error("Stock insuficiente nos lotes FIFO!");
+    if (restante > 0) throw new Error("Stock insuficiente nos lotes!");
 
     return custoTotalAcumulado / qtdARetirar; // Retorna o custo médio real dos lotes usados
   };
@@ -111,7 +111,7 @@ export default function GestaoStock() {
         utilizador: userId,
         custo_unitario: custoFinalParaBI,
         quantidade_restante: tipo === "Entrada" ? quantidade : 0, // Apenas entradas criam "lotes"
-        observacao: `Movimento FIFO (${tipo}).`
+        observacao: `Movimento (${tipo}).`
       }]);
 
       if (errAudit) throw errAudit;
@@ -122,7 +122,7 @@ export default function GestaoStock() {
       setSelecionado(null);
 
     } catch (err: any) {
-      alert("Erro no processamento FIFO: " + err.message);
+      alert("Erro no processamento: " + err.message);
     } finally {
       setProcessando(false);
     }
@@ -250,7 +250,7 @@ export default function GestaoStock() {
               </div>
 
               <button type="submit" disabled={processando} className={`w-full max-w-sm mx-auto py-6 rounded-[2rem] font-black text-white shadow-2xl uppercase tracking-[0.2em] text-[10px] transition-all active:scale-95 ${tipo === "Entrada" ? 'bg-[#1e3a8a]' : 'bg-amber-500'} ${processando ? 'opacity-50' : ''}`}>
-                {processando ? "A PROCESSAR FIFO..." : (tipo === "Entrada" ? "Confirmar Entrada" : "Confirmar Saída")}
+                {processando ? "A PROCESSAR..." : (tipo === "Entrada" ? "Confirmar Entrada" : "Confirmar Saída")}
               </button>
             </form>
           ) : (
@@ -258,7 +258,7 @@ export default function GestaoStock() {
               <div className="w-24 h-24 bg-blue-50 rounded-[2.5rem] flex items-center justify-center mx-auto text-4xl shadow-inner border border-blue-100">📦</div>
               <div className="space-y-2">
                 <p className="text-[#0f172a] font-black uppercase text-sm tracking-tighter">Selecione um Material</p>
-                <p className="text-slate-400 font-bold uppercase text-[9px] tracking-widest leading-relaxed">Selecione um item para gerir stock via FIFO</p>
+                <p className="text-slate-400 font-bold uppercase text-[9px] tracking-widest leading-relaxed">Selecione um item para gerir stock via</p>
               </div>
             </div>
           )}

@@ -13,16 +13,14 @@ export default function PedidosTickets() {
   const [aCarregar, setACarregar] = useState(true);
   const [modalAberto, setModalAberto] = useState(false);
   
-  // Estados de processamento
   const [gerandoPDF, setGerandoPDF] = useState<number | null>(null);
   const [aEnviarEmail, setAEnviarEmail] = useState<number | null>(null);
 
-  // --- FILTROS E PESQUISA ---
   const [filtroEstado, setFiltroEstado] = useState("Todos");
   const [filtroData, setFiltroData] = useState("");
 
   const [formulario, setFormulario] = useState({
-    quem_pede: "",         
+    quem_pede: "",          
     id_destino: "",       
     prioridade: "Normal", 
     texto_pedido: ""      
@@ -30,13 +28,20 @@ export default function PedidosTickets() {
 
   const carregarDados = async () => {
     setACarregar(true);
+    
+    // 1. Corrigido para 'contactos' (com C)
     const { data: conts } = await supabase.from("contactos").select("id, nome").order("nome");
     setListaContatos(conts || []);
 
-    const { data: peds } = await supabase
+    // 2. Corrigido o Join para 'contactos'
+    const { data: peds, error } = await supabase
       .from("pedidos")
       .select(`*, contactos!contacto_id (nome)`)
       .order("created_at", { ascending: false });
+    
+    if (error) {
+      console.error("ERRO NO SUPABASE:", error.message);
+    }
     
     setPedidos(peds || []);
     setACarregar(false);
@@ -44,28 +49,22 @@ export default function PedidosTickets() {
 
   useEffect(() => { carregarDados(); }, []);
 
-  // --- MUDANÇA DE ESTADO (CONCLUIR) ---
   const mudarEstado = async (id: number, novoEstado: string) => {
     const { error } = await supabase.from("pedidos").update({ estado: novoEstado }).eq("id", id);
     if (!error) carregarDados();
     else alert("Erro ao atualizar o fluxo.");
   };
 
-  // --- LÓGICA DE FILTRAGEM ---
   const pedidosFiltrados = pedidos.filter(p => {
     const matchEstado = filtroEstado === "Todos" || p.estado === filtroEstado;
     const matchData = !filtroData || p.created_at.includes(filtroData);
     return matchEstado && matchData;
   });
 
-  // =========================================================================
-  // --- FUNÇÃO AUXILIAR: DESENHAR O PDF (Usada pela Guia e pelo Email) ---
-  // =========================================================================
   const gerarDocumentoPDF = async (pedido: any, movimentos: any[]) => {
     const doc = new jsPDF();
     const dataHoje = new Date(pedido.created_at).toLocaleDateString('pt-PT');
 
-    // --- LOGOTIPO ---
     const carregarLogo = (): Promise<HTMLImageElement | null> => {
       return new Promise((resolve) => {
         const img = new Image();
@@ -76,55 +75,48 @@ export default function PedidosTickets() {
     };
 
     const logoImg = await carregarLogo();
-    if (logoImg) {
-      doc.addImage(logoImg, 'JPEG', 15, 10, 85, 25);
-    }
+    if (logoImg) doc.addImage(logoImg, 'JPEG', 15, 10, 85, 25);
 
-    // --- CABEÇALHO DIREITO ---
     doc.setTextColor(30, 58, 138); 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(26);
-    doc.text("Pedido", 195, 22, { align: 'right' });
+    doc.text("Guia de Saída", 195, 22, { align: 'right' });
     doc.setFontSize(12);
-    doc.text(`nº ${pedido.id}`, 195, 28, { align: 'right' });
-
+    doc.text(`Doc nº ${pedido.id}`, 195, 28, { align: 'right' });
     doc.setDrawColor(30, 58, 138);
     doc.setLineWidth(0.8);
     doc.line(15, 38, 195, 38);
 
-    // --- INFORMAÇÕES ---
     doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
-    doc.text("PARA", 15, 48); doc.text("DATA", 145, 48);
-
+    doc.text("DESTINO / UNIDADE", 15, 48); doc.text("DATA DO PEDIDO", 145, 48);
     doc.setTextColor(0); doc.setFontSize(11); doc.setFont("helvetica", "bold");
     doc.text(pedido.contactos?.nome?.toUpperCase() || "UNIDADE DESTINO", 15, 54);
     doc.text(dataHoje, 145, 54);
 
     doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
-    doc.text("REQUISITANTE", 15, 65);
+    doc.text("REQUISITANTE RESPONSÁVEL", 15, 65);
     doc.setTextColor(0); doc.setFont("helvetica", "bold");
     doc.text(pedido.requisitante?.toUpperCase() || "---", 15, 71);
 
     if (pedido.observacao) {
-      doc.setTextColor(100); doc.text("COMENTÁRIO", 145, 65);
+      doc.setTextColor(100); doc.text("NOTAS DO PEDIDO", 145, 65);
       doc.setTextColor(0); doc.setFont("helvetica", "normal");
       doc.text(pedido.observacao, 145, 71, { maxWidth: 45 });
     }
 
-    // --- TABELA ---
     const corpoTabela = await Promise.all(movimentos.map(async (m) => {
-      const { data: prod } = await supabase.from("produtos").select("nome").eq("id", m.produto_id).single();
+      const { data: prod } = await supabase.from("produtos").select("nome, local").eq("id", m.produto_id).single();
       return [
         prod?.nome?.toUpperCase() || "ARTIGO #" + m.produto_id,
-        m.local || "Entreposto Ponta Delgada",
-        m.observacoes || "",
+        prod?.local || "Armazém Geral",
+        m.observacao || "---",
         Math.abs(m.quantidade || 0).toString()
       ];
     }));
 
     autoTable(doc, {
       startY: 82,
-      head: [['Material / Artigo', 'Local de Saída', 'Notas', 'QTD']],
+      head: [['Artigo / Material', 'Localização', 'Observações Saída', 'QTD']],
       body: corpoTabela,
       theme: 'plain',
       headStyles: { textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 10, borderBottom: { color: [0, 0, 0], width: 0.1 } },
@@ -132,152 +124,72 @@ export default function PedidosTickets() {
       columnStyles: { 3: { halign: 'right', fontStyle: 'bold', cellWidth: 20 } }
     });
 
-    // --- SOMA TOTAL ---
     const totalQtd = movimentos.reduce((acc, curr) => acc + Math.abs(curr.quantidade || 0), 0);
     const finalY = (doc as any).lastAutoTable.finalY + 12;
     doc.setFontSize(11); doc.setTextColor(30, 58, 138); doc.setFont("helvetica", "bold");
-    doc.text(`TOTAL DE ITENS: ${totalQtd}`, 195, finalY, { align: 'right' });
+    doc.text(`TOTAL DE UNIDADES: ${totalQtd}`, 195, finalY, { align: 'right' });
 
-    // --- ÁREAS DE ASSINATURA ---
     const sigY = finalY + 30;
-    doc.setDrawColor(200);
-    doc.setLineWidth(0.2);
-    doc.line(15, sigY, 90, sigY);
-    doc.line(120, sigY, 195, sigY);
+    doc.setDrawColor(200); doc.line(15, sigY, 90, sigY); doc.line(120, sigY, 195, sigY);
+    doc.setFontSize(8); doc.setTextColor(100); doc.setFont("helvetica", "normal");
+    doc.text("RESPONSÁVEL PELO ENVIO", 15, sigY + 5);
+    doc.text("CONFIRMAÇÃO DE RECEÇÃO", 120, sigY + 5);
 
-    doc.setFontSize(8);
-    doc.setTextColor(100);
-    doc.setFont("helvetica", "normal");
-    doc.text("ENTREGUE POR (ASSINATURA)", 15, sigY + 5);
-    doc.text("RECEBIDO POR (ASSINATURA)", 120, sigY + 5);
-
-    // --- RODAPÉ ---
-    const fY = 270;
-    doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.5);
-    doc.line(15, fY, 195, fY);
-    doc.setFontSize(8); doc.setTextColor(0); doc.setFont("helvetica", "bold");
-    doc.text("LOTAÇOR S.A", 15, fY + 7);
+    const fY = 275;
+    doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.5); doc.line(15, fY, 195, fY);
+    doc.setFontSize(7); doc.setTextColor(0); doc.setFont("helvetica", "bold");
+    doc.text("LOTAÇOR - SERVIÇO DE APOIO À LOTA E COMERCIALIZAÇÃO DE PESCADO, S.A.", 15, fY + 5);
     doc.setFont("helvetica", "normal"); doc.setTextColor(100);
-    doc.text("Rua Eng. Abel Ferin Coutinho, n.º 15 | Ponta Delgada | NIF: 512013322", 15, fY + 12);
-    doc.text("T: 296 302 580 | economato@lotacor.pt", 140, fY + 12);
+    doc.text("Rua Eng. Abel Ferin Coutinho, 15 | 9500-191 Ponta Delgada | NIF: 512013322", 15, fY + 9);
+    doc.text("Email: economato@lotacor.pt | Telefone: 296 302 580", 145, fY + 9);
 
     return doc;
   };
 
-  // =========================================================================
-  // --- LÓGICA DE ENVIO DE EMAIL COM PDF ANEXO ---
-  // =========================================================================
   const handleEnviarEmail = async (pedido: any) => {
     setAEnviarEmail(pedido.id);
-
     try {
-      // 1. Procurar o email do contacto de destino na base de dados
-      const { data: contacto } = await supabase
-        .from("contactos")
-        .select("email")
-        .eq("id", pedido.contacto_id)
-        .single();
-
+      const { data: contacto } = await supabase.from("contactos").select("email").eq("id", pedido.contacto_id).single();
       let emailDestino = contacto?.email;
 
-      // Se não tiver email, perguntamos ao utilizador
       if (!emailDestino) {
-        const emailManual = prompt(`Não encontrámos email automático para "${pedido.contactos?.nome}".\nPor favor, introduza o email de destino:`);
-        if (!emailManual) {
-          setAEnviarEmail(null);
-          return;
-        }
+        const emailManual = prompt(`Não existe email para "${pedido.contactos?.nome}". Introduza manualmente:`);
+        if (!emailManual) { setAEnviarEmail(null); return; }
         emailDestino = emailManual;
       }
 
-      // 2. Ir buscar os movimentos
-      const { data: movimentos } = await supabase
-        .from("movimentos")
-        .select("*")
-        .eq("pedido_id", pedido.id)
-        .eq("tipo", "Saída");
+      const { data: movimentos } = await supabase.from("movimentos").select("*").eq("pedido_id", pedido.id).eq("tipo", "Saída");
+      if (!movimentos?.length) { alert("Sem movimentos para enviar."); setAEnviarEmail(null); return; }
 
-      if (!movimentos || movimentos.length === 0) {
-        alert("Este pedido não tem artigos registados para enviar no comprovativo.");
-        setAEnviarEmail(null);
-        return;
-      }
-
-      // 3. Gerar o PDF (usando a nossa função auxiliar)
       const doc = await gerarDocumentoPDF(pedido, movimentos);
-      
-      // Transformar o PDF em Base64 para enviar pela API
       const pdfBase64 = doc.output('datauristring').split(',')[1];
 
-      // Formatamos também os itens em texto para aparecerem no corpo do email (opcional)
-      const itensFormatados = await Promise.all(movimentos.map(async (m) => {
-        const { data: prod } = await supabase.from("produtos").select("nome").eq("id", m.produto_id).single();
-        return {
-          nome: prod?.nome || "Artigo #" + m.produto_id,
-          quantidade: Math.abs(m.quantidade || 0)
-        };
-      }));
-
-      // 4. Chamar a nossa API secreta
       const resposta = await fetch('/api/enviar-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pedidoId: pedido.id,
-          emailDestino: emailDestino,
-          nomeUtilizador: pedido.requisitante || "Colaborador",
-          itens: itensFormatados,
-          pdfAnexo: pdfBase64 // <- AQUI ESTÁ O PDF ENVIADO!
+          emailDestino,
+          nomeUtilizador: pedido.requisitante,
+          pdfAnexo: pdfBase64
         })
       });
 
       const resultado = await resposta.json();
-
-      if (resultado.success) {
-        alert(`✅ Comprovativo (PDF) enviado com sucesso para ${emailDestino}!`);
-      } else {
-        alert("❌ Falha ao enviar o email: " + resultado.error);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("❌ Erro ao gerar anexo ou comunicar com o servidor.");
-    } finally {
-      setAEnviarEmail(null);
-    }
+      if (resultado.success) alert(`✅ PDF enviado para ${emailDestino}`);
+      else alert("❌ Erro no envio: " + resultado.error);
+    } catch (err) { alert("❌ Erro ao processar envio."); }
+    finally { setAEnviarEmail(null); }
   };
 
-  // =========================================================================
-  // --- ABRIR PDF NO BROWSER (A Guia normal de re-imprimir) ---
-  // =========================================================================
   const gerarGuiaPDF = async (pedido: any) => {
     setGerandoPDF(pedido.id);
-    
     try {
-      const { data: movimentos, error: erroMov } = await supabase
-        .from("movimentos")
-        .select("*")
-        .eq("pedido_id", pedido.id)
-        .eq("tipo", "Saída");
-
-      if (erroMov) throw erroMov;
-      if (!movimentos || movimentos.length === 0) {
-        alert("Este pedido ainda não tem itens processados.");
-        setGerandoPDF(null);
-        return;
-      }
-
-      // Reutiliza a mesma função de layout!
+      const { data: movimentos } = await supabase.from("movimentos").select("*").eq("pedido_id", pedido.id).eq("tipo", "Saída");
+      if (!movimentos?.length) { alert("Pedido sem itens processados."); return; }
       const doc = await gerarDocumentoPDF(pedido, movimentos);
-
-      doc.save(`Pedido_${pedido.id}.pdf`);
-      window.open(doc.output('bloburl'), '_blank');
-
-    } catch (err) {
-      console.error(err);
-      alert("Erro ao gerar PDF.");
-    } finally {
-      setGerandoPDF(null);
-    }
+      doc.save(`Guia_Saida_Lotacor_${pedido.id}.pdf`);
+    } finally { setGerandoPDF(null); }
   };
 
   const criarTicket = async (e: React.FormEvent) => {
@@ -294,14 +206,11 @@ export default function PedidosTickets() {
       setModalAberto(false);
       setFormulario({ quem_pede: "", id_destino: "", prioridade: "Normal", texto_pedido: "" });
       carregarDados();
-    } catch (err) {
-      alert("Erro ao criar pedido.");
-    }
+    } catch (err) { alert("Erro ao criar pedido."); }
   };
 
   return (
     <main className="flex-1 p-8 md:p-12 overflow-y-auto h-screen bg-slate-50">
-      {/* HEADER E FILTROS */}
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
         <div>
           <h1 className="text-4xl font-black text-[#0f172a] tracking-tighter uppercase italic leading-none">
@@ -311,49 +220,23 @@ export default function PedidosTickets() {
         </div>
 
         <div className="flex flex-wrap gap-3 items-center w-full lg:w-auto">
-          <div className="flex bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200 items-center">
-            <span className="text-[9px] font-black text-slate-400 uppercase mr-3">Data:</span>
-            <input type="date" value={filtroData} onChange={e => setFiltroData(e.target.value)} className="text-xs font-bold outline-none bg-transparent" />
-          </div>
-          <div className="flex bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200 items-center">
-            <span className="text-[9px] font-black text-slate-400 uppercase mr-3">Estado:</span>
-            <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="text-xs font-bold outline-none bg-transparent uppercase">
-              <option value="Todos">Todos</option>
-              <option value="Pendente">Pendentes</option>
-              <option value="Processado">Processados</option>
-              <option value="Concluído">Concluídos</option>
-            </select>
-          </div>
-          <button onClick={() => setModalAberto(true)} className="px-6 py-3 bg-[#1e3a8a] text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg hover:scale-105 transition-all">+ Novo Pedido</button>
+          <input type="date" value={filtroData} onChange={e => setFiltroData(e.target.value)} className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200 text-xs font-bold outline-none" />
+          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200 text-xs font-bold outline-none uppercase">
+            <option value="Todos">Todos os Estados</option>
+            <option value="Pendente">Pendentes</option>
+            <option value="Processado">Processados (FIFO)</option>
+            <option value="Concluído">Entregues</option>
+          </select>
+          <button onClick={() => setModalAberto(true)} className="px-6 py-3 bg-[#1e3a8a] text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">+ Novo Pedido</button>
         </div>
       </header>
 
-      {/* ESTATÍSTICAS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-        {[
-          { label: 'Pendentes', cor: 'border-amber-400', qtd: pedidos.filter(p => p.estado === 'Pendente').length, bg: 'text-amber-600' },
-          { label: 'Aguardando Entrega', cor: 'border-blue-500', qtd: pedidos.filter(p => p.estado === 'Processado').length, bg: 'text-blue-600' },
-          { label: 'Concluídos', cor: 'border-green-500', qtd: pedidos.filter(p => p.estado === 'Concluído').length, bg: 'text-green-600' }
-        ].map((card, i) => (
-          <div key={i} className={`bg-white p-6 rounded-[2rem] shadow-sm border-b-8 ${card.cor} flex justify-between items-end`}>
-            <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{card.label}</p>
-              <p className={`text-4xl font-black ${card.bg}`}>{card.qtd}</p>
-            </div>
-            <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-xl opacity-20">📊</div>
-          </div>
-        ))}
-      </div>
-
-      {/* LISTAGEM */}
       <div className="space-y-4">
         {aCarregar ? (
-          <div className="text-center py-20 font-black text-slate-300 animate-pulse uppercase tracking-widest">Sincronizando...</div>
-        ) : pedidosFiltrados.length === 0 ? (
-          <div className="bg-white p-20 rounded-[3rem] text-center border-4 border-dashed border-slate-100 font-bold text-slate-300 uppercase text-xs">Nenhum pedido encontrado.</div>
+          <div className="text-center py-20 font-black text-slate-300 animate-pulse uppercase tracking-widest italic">Acedendo aos servidores Lotaçor...</div>
         ) : (
           pedidosFiltrados.map((p) => (
-            <div key={p.id} className={`bg-white p-8 rounded-[2.5rem] shadow-sm flex flex-col md:flex-row justify-between items-center border-l-8 transition-all hover:shadow-md ${
+            <div key={p.id} className={`bg-white p-8 rounded-[2.5rem] shadow-sm flex flex-col md:flex-row justify-between items-center border-l-8 transition-all ${
               p.estado === 'Pendente' ? 'border-amber-400' : p.estado === 'Concluído' ? 'border-green-500' : 'border-[#1e3a8a]'
             }`}>
               <div className="flex-1">
@@ -361,60 +244,54 @@ export default function PedidosTickets() {
                   <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${
                     p.estado === 'Pendente' ? 'bg-amber-100 text-amber-700' : p.estado === 'Concluído' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
                   }`}>● {p.estado}</span>
-                  <span className="text-[10px] font-bold text-slate-300 tracking-widest">REF: #{p.id}</span>
-                  <span className="text-[10px] font-bold text-slate-300 italic">{new Date(p.created_at).toLocaleDateString('pt-PT')}</span>
+                  <span className="text-[10px] font-bold text-slate-300 tracking-widest">ID: #{p.id}</span>
                 </div>
-                <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{p.contactos?.nome || "Unidade"}</h3>
-                <p className="text-xs text-slate-400 font-bold uppercase mt-1">Requisitante: <span className="text-slate-600">{p.requisitante}</span></p>
+                <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{p.contactos?.nome || "Unidade Destino"}</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase mt-1">Requisitado por: <span className="text-slate-600">{p.requisitante}</span></p>
               </div>
 
-              <div className="flex flex-wrap gap-2 w-full md:w-auto justify-center">
+              <div className="flex flex-wrap gap-2 items-center">
                 {p.estado === 'Pendente' && (
-                  <button onClick={() => router.push(`/dashboard/pedidos/processar/${p.id}`)} className="bg-[#1e3a8a] text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Processar Stock</button>
+                  <button onClick={() => router.push(`/dashboard/pedidos/processar/${p.id}`)} className="bg-[#1e3a8a] text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Processar Pedido</button>
                 )}
                 {p.estado === 'Processado' && (
                   <>
                     <button onClick={() => gerarGuiaPDF(p)} className="bg-slate-100 text-slate-600 px-6 py-4 rounded-2xl font-black text-[10px] uppercase hover:bg-slate-200">🖨️ Guia</button>
-                    <button onClick={() => mudarEstado(p.id, "Concluído")} className="bg-green-600 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Concluir Entrega</button>
+                    <button onClick={() => mudarEstado(p.id, "Concluído")} className="bg-green-600 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-lg">Entregar</button>
                   </>
                 )}
                 {p.estado === 'Concluído' && (
                   <>
-                    <button onClick={() => gerarGuiaPDF(p)} className="bg-green-50 text-green-600 border border-green-200 px-8 py-4 rounded-2xl font-black text-[10px] uppercase italic hover:bg-green-100 transition-colors">
-                      🖨️ Re-imprimir
-                    </button>
-                    
-                    <button 
-                      onClick={() => handleEnviarEmail(p)}
-                      disabled={aEnviarEmail === p.id}
-                      className="bg-blue-50 text-blue-600 border border-blue-200 px-8 py-4 rounded-2xl font-black text-[10px] uppercase italic hover:bg-blue-100 transition-colors disabled:opacity-50 flex items-center gap-2"
-                    >
-                      {aEnviarEmail === p.id ? <span className="animate-pulse">A Enviar PDF...</span> : "✉️ Enviar PDF"}
+                    <button onClick={() => gerarGuiaPDF(p)} className="bg-green-50 text-green-600 border border-green-200 px-6 py-4 rounded-2xl font-black text-[10px] uppercase hover:bg-green-100 transition-colors">🖨️ Re-imprimir</button>
+                    <button onClick={() => handleEnviarEmail(p)} disabled={aEnviarEmail === p.id} className="bg-blue-50 text-blue-600 border border-blue-200 px-6 py-4 rounded-2xl font-black text-[10px] uppercase flex items-center gap-2">
+                      {aEnviarEmail === p.id ? "..." : "✉️ Enviar PDF"}
                     </button>
                   </>
                 )}
-                <button onClick={async () => { if(confirm("Apagar?")) { await supabase.from("pedidos").delete().eq("id", p.id); carregarDados(); } }} className="text-red-200 hover:text-red-500 text-[9px] font-black uppercase ml-4 transition-colors">Eliminar</button>
+                <button onClick={async () => {
+                   if (p.estado !== "Pendente") return alert("Apenas pedidos pendentes podem ser eliminados.");
+                   if(confirm("Confirmar eliminação?")) { await supabase.from("pedidos").delete().eq("id", p.id); carregarDados(); }
+                }} className="text-red-200 hover:text-red-500 text-[9px] font-black uppercase ml-4">Eliminar</button>
               </div>
             </div>
           ))
         )}
       </div>
 
-      {/* MODAL NOVO PEDIDO */}
       {modalAberto && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center z-50 p-6">
-          <div className="bg-white rounded-[3rem] p-10 w-full max-w-lg shadow-2xl border-4 border-white">
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center z-50 p-6 font-sans">
+          <div className="bg-white rounded-[3rem] p-10 w-full max-w-lg shadow-2xl border-4 border-white animate-in zoom-in duration-200">
             <h2 className="text-2xl font-black text-[#1e3a8a] mb-6 uppercase italic tracking-tighter">Novo Pedido Economato</h2>
             <form onSubmit={criarTicket} className="space-y-4">
-              <select required value={formulario.id_destino} onChange={e => setFormulario({...formulario, id_destino: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold text-sm focus:ring-2 ring-blue-500">
-                <option value="">-- Unidade de Destino --</option>
+              <select required value={formulario.id_destino} onChange={e => setFormulario({...formulario, id_destino: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold text-sm outline-none ring-blue-500 focus:ring-2">
+                <option value="">-- Selecione o Destino --</option>
                 {listaContatos.map(c => <option key={c.id} value={c.id}>{c.nome.toUpperCase()}</option>)}
               </select>
-              <input required type="text" value={formulario.quem_pede} onChange={e => setFormulario({...formulario, quem_pede: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold text-sm" placeholder="Nome do Requisitante" />
-              <textarea required rows={3} value={formulario.texto_pedido} onChange={e => setFormulario({...formulario, texto_pedido: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold text-sm" placeholder="O que é necessário?"></textarea>
+              <input required type="text" value={formulario.quem_pede} onChange={e => setFormulario({...formulario, quem_pede: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold text-sm outline-none" placeholder="Quem faz a requisição?" />
+              <textarea required rows={3} value={formulario.texto_pedido} onChange={e => setFormulario({...formulario, texto_pedido: e.target.value})} className="w-full p-4 rounded-2xl bg-slate-50 border-none font-bold text-sm outline-none" placeholder="Descrição dos materiais necessários..."></textarea>
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setModalAberto(false)} className="flex-1 py-4 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase text-[10px]">Cancelar</button>
-                <button type="submit" className="flex-1 py-4 bg-[#1e3a8a] text-white rounded-2xl font-black uppercase text-[10px] shadow-lg">Emitir</button>
+                <button type="button" onClick={() => setModalAberto(false)} className="flex-1 py-4 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase text-[10px]">Fechar</button>
+                <button type="submit" className="flex-1 py-4 bg-[#1e3a8a] text-white rounded-2xl font-black uppercase text-[10px] shadow-lg">Criar Ticket</button>
               </div>
             </form>
           </div>
