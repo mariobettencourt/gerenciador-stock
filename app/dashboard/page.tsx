@@ -3,6 +3,15 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer 
+} from 'recharts';
 
 export default function DashboardInicial() {
   const router = useRouter();
@@ -17,6 +26,7 @@ export default function DashboardInicial() {
   
   const [movimentosRecentes, setMovimentosRecentes] = useState<any[]>([]);
   const [listaCritica, setListaCritica] = useState<any[]>([]);
+  const [dadosGrafico, setDadosGrafico] = useState<any[]>([]);
 
   useEffect(() => {
     const carregarDashboard = async () => {
@@ -47,7 +57,10 @@ export default function DashboardInicial() {
           }
         });
 
-        criticos.sort((a, b) => a.quantidade - b.quantidade);
+        // Ordenar por gravidade (quem tem menos stock face ao mínimo) e pegar apenas os 5 primeiros
+        const top5Criticos = criticos
+          .sort((a, b) => a.quantidade - b.quantidade)
+          .slice(0, 5);
 
         setKpis({
           totalArtigos: produtos.length,
@@ -55,24 +68,48 @@ export default function DashboardInicial() {
           artigosRutura: emRutura,
           pedidosPendentes: pendentes || 0
         });
-        setListaCritica(criticos);
+        setListaCritica(top5Criticos);
       }
 
-      // 3. Movimentos Recentes (Auditoria)
+      // 3. Movimentos Recentes
       const { data: movs } = await supabase
         .from("movimentos")
-        .select(`
-          id, 
-          created_at, 
-          tipo, 
-          quantidade, 
-          observacao,
-          produtos (nome)
-        `)
+        .select(`id, created_at, tipo, quantidade, produtos (nome)`)
         .order("created_at", { ascending: false })
-        .limit(6);
+        .limit(5);
         
       if (movs) setMovimentosRecentes(movs);
+
+      // 4. Lógica do Gráfico de Tendência (Últimos 7 dias)
+      const seteDiasAtras = new Date();
+      seteDiasAtras.setDate(seteDiasAtras.getDate() - 7);
+
+      const { data: movsGrafico } = await supabase
+        .from("movimentos")
+        .select("created_at, quantidade")
+        .eq("tipo", "Saída")
+        .gte("created_at", seteDiasAtras.toISOString());
+
+      if (movsGrafico) {
+        const diasSemana = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+        const ultimos7Dias = Array.from({ length: 7 }, (_, i) => {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          return {
+            original: d.toLocaleDateString(),
+            label: diasSemana[d.getDay()]
+          };
+        }).reverse();
+
+        const contagemPorDia = ultimos7Dias.map(dia => {
+          const totalSaidas = movsGrafico
+            .filter(m => new Date(m.created_at).toLocaleDateString() === dia.original)
+            .reduce((acc, m) => acc + Math.abs(m.quantidade), 0);
+          return { dia: dia.label, quantidade: totalSaidas };
+        });
+
+        setDadosGrafico(contagemPorDia);
+      }
       
       setACarregar(false);
     };
@@ -83,56 +120,49 @@ export default function DashboardInicial() {
   if (aCarregar) return (
     <div className="p-12 text-center text-[#1e3a8a] font-black uppercase animate-pulse h-screen flex flex-col items-center justify-center gap-6 bg-slate-50">
       <div className="w-16 h-16 border-4 border-[#1e3a8a] border-t-transparent rounded-full animate-spin"></div>
-      A Sincronizar o Centro de Comando...
+      Sincronizando Centro de Comando...
     </div>
   );
 
   return (
-    <main className="flex-1 p-6 md:p-10 lg:p-12 overflow-y-auto h-screen bg-slate-50 w-full">
+    <main className="flex-1 p-6 md:p-10 lg:p-12 overflow-y-auto h-screen bg-slate-50 w-full scrollbar-hide">
       <div className="max-w-[1600px] mx-auto">
         
-        {/* CABEÇALHO COM AÇÕES RÁPIDAS */}
-        <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
+        <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
           <div>
             <h1 className="text-4xl font-black text-[#0f172a] uppercase italic leading-none tracking-tighter">
               Centro de <span className="text-[#1e3a8a]">Comando</span>
             </h1>
-            <div className="h-1.5 w-24 bg-[#1e3a8a] rounded-full mt-3 mb-2"></div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Painel Operacional Lotaçor</p>
+            <div className="h-1.5 w-20 bg-[#1e3a8a] rounded-full mt-3"></div>
           </div>
 
-          <div className="flex flex-wrap gap-3 w-full lg:w-auto">
-            <button onClick={() => router.push('/dashboard/pedidos')} className="flex-1 lg:flex-none group flex items-center gap-3 bg-white border-2 border-slate-200 p-2 pr-6 rounded-2xl hover:border-[#1e3a8a] transition-all shadow-sm">
-              <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center group-hover:bg-[#1e3a8a] group-hover:text-white transition-colors">📋</div>
-              <span className="text-[10px] font-black uppercase text-slate-500 group-hover:text-[#1e3a8a]">Ver Pedidos</span>
+          <div className="flex gap-3 w-full lg:w-auto">
+            <button onClick={() => router.push('/dashboard/pedidos')} className="flex-1 lg:flex-none group flex items-center gap-3 bg-white border border-slate-200 p-2 pr-6 rounded-2xl hover:border-[#1e3a8a] transition-all shadow-sm">
+              <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center group-hover:bg-[#1e3a8a] group-hover:text-white transition-colors">📋</div>
+              <span className="text-[10px] font-black uppercase text-slate-500">Pedidos</span>
             </button>
-            
-            {/* BOTÃO ALTERADO PARA "NOVO ARTIGO" */}
-            <button onClick={() => router.push('/dashboard/inventario')} className="flex-1 lg:flex-none group flex items-center gap-3 bg-white border-2 border-slate-200 p-2 pr-6 rounded-2xl hover:border-green-500 transition-all shadow-sm">
-              <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition-colors">📥</div>
-              <span className="text-[10px] font-black uppercase text-slate-500 group-hover:text-green-600">Novo Artigo</span>
+            <button onClick={() => router.push('/dashboard/gestao')} className="flex-1 lg:flex-none group flex items-center gap-3 bg-white border border-slate-200 p-2 pr-6 rounded-2xl hover:border-green-500 transition-all shadow-sm">
+              <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition-colors">📥</div>
+              <span className="text-[10px] font-black uppercase text-slate-500">Entrada Stock</span>
             </button>
           </div>
         </header>
 
-        {/* GRID DE KPIs */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-          
-          <div className={`p-8 rounded-[2.5rem] shadow-sm border transition-all ${kpis.artigosRutura > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100'}`}>
-            <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${kpis.artigosRutura > 0 ? 'text-red-400' : 'text-slate-400'}`}>Stock em Alerta</p>
+        {/* KPIs */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className={`p-8 rounded-[2.5rem] shadow-sm border ${kpis.artigosRutura > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100'}`}>
+            <p className={`text-[9px] font-black uppercase tracking-widest mb-2 ${kpis.artigosRutura > 0 ? 'text-red-400' : 'text-slate-400'}`}>Stock Crítico</p>
             <div className="flex items-end gap-2">
-              <p className={`text-5xl font-black leading-none ${kpis.artigosRutura > 0 ? 'text-red-500 animate-pulse' : 'text-slate-800'}`}>
-                {kpis.artigosRutura}
-              </p>
-              <span className={`text-xs font-bold mb-1 uppercase italic ${kpis.artigosRutura > 0 ? 'text-red-300' : 'text-slate-300'}`}>Artigos</span>
+              <p className={`text-5xl font-black leading-none ${kpis.artigosRutura > 0 ? 'text-red-500 animate-pulse' : 'text-slate-800'}`}>{kpis.artigosRutura}</p>
+              <span className="text-[10px] font-bold mb-1 uppercase italic text-slate-400">Artigos</span>
             </div>
           </div>
 
           <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Pedidos Pendentes</p>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Pedidos em Fila</p>
             <div className="flex items-end gap-2">
               <p className="text-5xl font-black leading-none text-[#1e3a8a]">{kpis.pedidosPendentes}</p>
-              <span className="text-xs font-bold text-slate-300 mb-1 uppercase italic">Fila</span>
+              <span className="text-[10px] font-bold text-slate-400 mb-1 uppercase italic text-slate-400">Pendentes</span>
             </div>
           </div>
 
@@ -140,111 +170,119 @@ export default function DashboardInicial() {
             <div className="relative z-10">
               <p className="text-[10px] font-black text-blue-300 uppercase tracking-widest mb-2 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
-                Valor Total em Inventário
+                Valor em Inventário
               </p>
-              <p className="text-5xl font-black italic tracking-tight group-hover:scale-105 transition-transform origin-left">
+              <p className="text-4xl font-black italic tracking-tight">
                 {kpis.valorInventario.toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' })}
               </p>
             </div>
-            <div className="text-7xl opacity-[0.03] font-black absolute -right-4 -bottom-8 rotate-12 select-none pointer-events-none">LOTAÇOR</div>
+            <div className="text-7xl opacity-[0.05] font-black absolute -right-4 -bottom-8 rotate-12 italic">LOTAÇOR</div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* FEED DE ATIVIDADE */}
-          <div className="lg:col-span-2 flex flex-col gap-6">
-            <div className="bg-white rounded-[3rem] p-8 md:p-10 shadow-sm border border-slate-100 flex-1">
-              <div className="flex justify-between items-center mb-8">
-                <h2 className="text-xl font-black text-[#0f172a] uppercase italic tracking-tighter">Atividade Recente</h2>
-                <button onClick={() => router.push('/dashboard/admin/auditoria')} className="text-[9px] font-black text-[#1e3a8a] uppercase border-b-2 border-[#1e3a8a] hover:text-blue-800 transition-colors">
-                  Ver Auditoria Completa
-                </button>
+          <div className="lg:col-span-2 flex flex-col gap-8">
+            <div className="bg-white rounded-[3rem] p-8 shadow-sm border border-slate-100">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-lg font-black text-[#0f172a] uppercase italic tracking-tighter">Fluxo de Saída (Semanal)</h2>
+                <div className="flex items-center gap-2">
+                   <div className="w-3 h-3 bg-[#1e3a8a] rounded-full"></div>
+                   <span className="text-[9px] font-black text-slate-400 uppercase">Qtd Movimentada</span>
+                </div>
               </div>
-              
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={dadosGrafico}>
+                    <defs>
+                      <linearGradient id="colorSaida" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#1e3a8a" stopOpacity={0.1}/>
+                        <stop offset="95%" stopColor="#1e3a8a" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="dia" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 'bold', fill: '#cbd5e1'}} />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '15px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      itemStyle={{ fontWeight: 'bold', fontSize: '10px', color: '#1e3a8a' }}
+                    />
+                    <Area type="monotone" dataKey="quantidade" stroke="#1e3a8a" strokeWidth={4} fillOpacity={1} fill="url(#colorSaida)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-[3rem] p-8 shadow-sm border border-slate-100">
+              <h2 className="text-lg font-black text-[#0f172a] uppercase italic tracking-tighter mb-6">Atividade de Hoje</h2>
               <div className="space-y-3">
-                {movimentosRecentes.length === 0 ? (
-                  <p className="text-center text-slate-400 text-xs font-bold uppercase tracking-widest py-10">Sem movimentos registados hoje.</p>
-                ) : movimentosRecentes.map((mov, i) => (
-                  <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-3xl bg-slate-50/50 border border-slate-100 hover:bg-white hover:shadow-md transition-all gap-4">
-                    <div className="flex items-center gap-5">
-                      <div className={`w-12 h-12 shrink-0 rounded-2xl flex items-center justify-center text-xl shadow-inner ${
+                {movimentosRecentes.map((mov, i) => (
+                  <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${
                         mov.tipo === 'Saída' ? 'bg-amber-100 text-amber-600' : 
-                        mov.tipo === 'Entrada' ? 'bg-green-100 text-green-600' :
-                        mov.tipo === 'Remoção' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+                        mov.tipo === 'Entrada' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'
                       }`}>
-                        {mov.tipo === 'Saída' ? '📦' : mov.tipo === 'Entrada' ? '📥' : mov.tipo === 'Remoção' ? '🗑️' : '✨'}
+                        {mov.tipo === 'Saída' ? '📦' : '📥'}
                       </div>
                       <div>
-                        <p className="font-black text-sm uppercase text-slate-800">{mov.produtos?.nome || "Registo Geral"}</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">
-                          {new Date(mov.created_at).toLocaleDateString('pt-PT')} às {new Date(mov.created_at).toLocaleTimeString('pt-PT')}
-                          <span className="text-slate-300 ml-2">| {mov.tipo}</span>
-                        </p>
+                        <p className="font-black text-xs uppercase text-slate-700 truncate max-w-[150px] md:max-w-[300px]">{mov.produtos?.nome}</p>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase">{new Date(mov.created_at).toLocaleTimeString('pt-PT')} • {mov.tipo}</p>
                       </div>
                     </div>
-                    {mov.quantidade !== 0 && (
-                      <div className="text-right sm:block hidden">
-                        <p className={`font-black text-xl ${mov.quantidade < 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                          {mov.quantidade > 0 ? '+' : ''}{mov.quantidade}
-                        </p>
-                      </div>
-                    )}
+                    <p className={`font-black text-base ${mov.quantidade < 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                      {mov.quantidade > 0 ? '+' : ''}{mov.quantidade}
+                    </p>
                   </div>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* COLUNA LATERAL - REPOSIÇÃO URGENTE */}
-          <div className="flex flex-col gap-6">
-            <div className="bg-red-50 border border-red-100 rounded-[3rem] p-8 shadow-lg shadow-red-900/5 flex-1 flex flex-col max-h-[600px]">
-              <h2 className="text-sm font-black text-red-600 uppercase tracking-widest mb-6 flex items-center gap-3 shrink-0">
-                <span className="animate-ping w-2.5 h-2.5 bg-red-600 rounded-full"></span> 
-                Reposição Urgente
+          <div className="flex flex-col gap-8">
+            <div className="bg-white border border-slate-100 rounded-[3rem] p-8 shadow-sm flex flex-col h-full min-h-[400px]">
+              <h2 className="text-xs font-black text-red-500 uppercase tracking-widest mb-6 flex items-center gap-2">
+                <span className="w-2 h-2 bg-red-500 rounded-full"></span> 
+                Reposição (Top 5)
               </h2>
               
-              <div className="space-y-4 overflow-y-auto pr-2 scrollbar-hide flex-1">
+              <div className="space-y-3 flex-1">
                 {listaCritica.length > 0 ? listaCritica.map((p, i) => (
-                  <div key={i} className="bg-white p-4 rounded-2xl border border-red-100 shadow-sm relative overflow-hidden group">
-                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-red-500"></div>
-                    <div className="pl-3">
-                      <p className="text-xs font-black text-slate-800 uppercase leading-tight mb-2 group-hover:text-red-600 transition-colors">{p.nome}</p>
-                      <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest">
-                        <span className="text-slate-400">Mínimo: {p.min_calculado}</span>
-                        <span className="bg-red-100 text-red-600 px-2 py-1 rounded-md">Stock: {p.quantidade}</span>
-                      </div>
+                  <div key={i} className="p-4 rounded-2xl bg-slate-50 border-l-4 border-red-500 shadow-sm transition-transform hover:scale-[1.02]">
+                    <p className="text-[10px] font-black text-slate-800 uppercase leading-tight mb-2 truncate">{p.nome}</p>
+                    <div className="flex justify-between items-center text-[9px] font-bold">
+                      <span className="text-slate-400 uppercase">Min: {p.min_calculado}</span>
+                      <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded text-[8px] font-black uppercase">Stock: {p.quantidade}</span>
                     </div>
                   </div>
                 )) : (
-                  <div className="h-full flex flex-col items-center justify-center text-center opacity-60 py-10">
-                    <span className="text-5xl mb-4">🛡️</span>
-                    <p className="text-xs font-black text-green-600 uppercase tracking-widest">Stock Controlado</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-2">Nenhum artigo abaixo do mínimo.</p>
+                  <div className="flex flex-col items-center justify-center h-full text-center opacity-40 py-10">
+                    <span className="text-4xl mb-3">✅</span>
+                    <p className="text-[9px] font-black uppercase text-slate-500">Stock OK</p>
                   </div>
                 )}
+                {kpis.artigosRutura > 5 && (
+                  <p className="text-center text-[8px] font-black text-slate-300 uppercase tracking-widest pt-2">
+                    + {kpis.artigosRutura - 5} artigos em alerta
+                  </p>
+                )}
               </div>
-              
-              {/* BOTÃO ALTERADO PARA REDIRECIONAR PARA A PÁGINA DE NECESSIDADES */}
-              {listaCritica.length > 0 && (
-                <button onClick={() => router.push('/dashboard/reposicao')} className="w-full mt-6 py-4 bg-red-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-600/30 transition-all shrink-0">
-                  📋 Gerar Lista de Compras
+              {kpis.artigosRutura > 0 && (
+                <button onClick={() => router.push('/dashboard/reposicao')} className="w-full mt-6 py-4 bg-[#1e3a8a] text-white rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-[#0f172a] transition-all shadow-lg shadow-blue-900/10">
+                  Gerar Lista Completa
                 </button>
               )}
             </div>
 
-            {/* Dica Automática */}
-            <div className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2.5rem] p-8 text-slate-900 shadow-lg relative overflow-hidden shrink-0">
-              <div className="absolute -right-4 -top-4 text-7xl opacity-20">💡</div>
-              <p className="text-[9px] font-black uppercase tracking-widest opacity-80 mb-2">Estado da Operação</p>
-              <p className="font-bold text-sm leading-tight">
+            <div className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2.5rem] p-8 text-[#0f172a] shadow-lg relative overflow-hidden shrink-0">
+              <div className="absolute -right-4 -top-4 text-7xl opacity-10 rotate-12">💡</div>
+              <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mb-2 italic">Estado Operacional</p>
+              <p className="font-bold text-xs leading-tight">
                 {kpis.pedidosPendentes > 0 
-                  ? `Existem ${kpis.pedidosPendentes} pedidos a aguardar aprovação ou processamento. Confere a fila de pedidos.` 
-                  : "Todos os pedidos internos foram processados. Excelente trabalho!"}
+                  ? `Prioridade: Processar os ${kpis.pedidosPendentes} pedidos em espera.` 
+                  : "Não existem pedidos pendentes. O economato está atualizado!"}
               </p>
             </div>
           </div>
-
         </div>
       </div>
     </main>

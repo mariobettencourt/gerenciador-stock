@@ -61,109 +61,183 @@ export default function PedidosTickets() {
     return matchEstado && matchData;
   });
 
-  const gerarDocumentoPDF = async (pedido: any, movimentos: any[]) => {
+ const gerarDocumentoPDF = async (pedido: any, movimentos: any[]) => {
     const doc = new jsPDF();
-    const dataHoje = new Date(pedido.created_at).toLocaleDateString('pt-PT');
+    const dataHoje = new Date().toLocaleDateString('pt-PT');
+    const dataPedido = new Date(pedido.created_at).toLocaleDateString('pt-PT');
 
     const carregarLogo = (): Promise<HTMLImageElement | null> => {
       return new Promise((resolve) => {
         const img = new Image();
-        img.src = '/logo.jpg';
+        img.src = '/logo.jpg'; // Mantendo o teu caminho original
         img.onload = () => resolve(img);
         img.onerror = () => resolve(null);
       });
     };
 
     const logoImg = await carregarLogo();
-    if (logoImg) doc.addImage(logoImg, 'JPEG', 15, 10, 85, 25);
+    if (logoImg) doc.addImage(logoImg, 'JPEG', 15, 12, 60, 18);
 
-    doc.setTextColor(30, 58, 138); 
+    // --- CABEÇALHO ---
+    doc.setTextColor(30, 58, 138); // Azul Lotaçor
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(26);
-    doc.text("Guia de Saída", 195, 22, { align: 'right' });
-    doc.setFontSize(12);
-    doc.text(`Doc nº ${pedido.id}`, 195, 28, { align: 'right' });
+    doc.setFontSize(22);
+    doc.text("Pedido", 195, 22, { align: 'right' });
+    
+    doc.setFontSize(10);
+    doc.setTextColor(150);
+    doc.text(`Nº DOCUMENTO: ${pedido.id}`, 195, 28, { align: 'right' });
+
     doc.setDrawColor(30, 58, 138);
     doc.setLineWidth(0.8);
-    doc.line(15, 38, 195, 38);
+    doc.line(15, 35, 195, 35);
 
-    doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
-    doc.text("DESTINO / UNIDADE", 15, 48); doc.text("DATA DO PEDIDO", 145, 48);
-    doc.setTextColor(0); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-    doc.text(pedido.contactos?.nome?.toUpperCase() || "UNIDADE DESTINO", 15, 54);
-    doc.text(dataHoje, 145, 54);
+    // --- BLOCOS DE INFORMAÇÃO (Organizados para poupar espaço) ---
+    // Destino
+    doc.setFillColor(248, 250, 252);
+    doc.rect(15, 42, 95, 25, 'F');
+    doc.setTextColor(100); doc.setFontSize(7); doc.setFont("helvetica", "bold");
+    doc.text("UNIDADE DESTINATÁRIA", 20, 48);
+    doc.setTextColor(0); doc.setFontSize(10);
+    doc.text(pedido.contactos?.nome?.toUpperCase() || "GERAL", 20, 55);
+    
+    // Detalhes do Pedido
+    doc.setTextColor(100); doc.setFontSize(7);
+    doc.text("DATA EMISSÃO", 120, 48);
+    doc.text("DATA PEDIDO", 160, 48);
+    doc.text("REQUISITANTE RESPONSÁVEL", 120, 58);
 
-    doc.setTextColor(100); doc.setFontSize(8); doc.setFont("helvetica", "normal");
-    doc.text("REQUISITANTE RESPONSÁVEL", 15, 65);
-    doc.setTextColor(0); doc.setFont("helvetica", "bold");
-    doc.text(pedido.requisitante?.toUpperCase() || "---", 15, 71);
+    doc.setTextColor(0); doc.setFontSize(9);
+    doc.text(dataHoje, 120, 53);
+    doc.text(dataPedido, 160, 53);
+    doc.text(pedido.requisitante?.toUpperCase() || "---", 120, 63);
 
+    // Notas (se existirem, aparecem num espaço reduzido)
     if (pedido.observacao) {
-      doc.setTextColor(100); doc.text("NOTAS DO PEDIDO", 145, 65);
-      doc.setTextColor(0); doc.setFont("helvetica", "normal");
-      doc.text(pedido.observacao, 145, 71, { maxWidth: 45 });
+      doc.setTextColor(100); doc.setFontSize(7);
+      doc.text("OBSERVAÇÕES", 15, 74);
+      doc.setTextColor(0); doc.setFontSize(8); doc.setFont("helvetica", "italic");
+      doc.text(pedido.observacao, 15, 79, { maxWidth: 180 });
     }
 
+    // --- TABELA DE ITENS (Compacta para caber tudo numa folha) ---
     const corpoTabela = await Promise.all(movimentos.map(async (m) => {
       const { data: prod } = await supabase.from("produtos").select("nome, local").eq("id", m.produto_id).single();
       return [
         prod?.nome?.toUpperCase() || "ARTIGO #" + m.produto_id,
-        prod?.local || "Armazém Geral",
+        prod?.local || "GERAL",
         m.observacao || "---",
         Math.abs(m.quantidade || 0).toString()
       ];
     }));
 
     autoTable(doc, {
-      startY: 82,
-      head: [['Artigo / Material', 'Localização', 'Observações Saída', 'QTD']],
+      startY: pedido.observacao ? 85 : 75,
+      head: [['MATERIAL / ARTIGO', 'LOCALIZAÇÃO', 'NOTAS EXPEDIÇÃO', 'QTD']],
       body: corpoTabela,
-      theme: 'plain',
-      headStyles: { textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 10, borderBottom: { color: [0, 0, 0], width: 0.1 } },
-      styles: { fontSize: 9, cellPadding: 4, lineColor: [230, 230, 230], lineWidth: 0.1 },
-      columnStyles: { 3: { halign: 'right', fontStyle: 'bold', cellWidth: 20 } }
+      theme: 'grid',
+      headStyles: { 
+        fillColor: [30, 58, 138], 
+        fontSize: 8, 
+        cellPadding: 3,
+        fontStyle: 'bold' 
+      },
+      styles: { 
+        fontSize: 8, 
+        cellPadding: 3, 
+        lineColor: [230, 230, 230], 
+        lineWidth: 0.1 
+      },
+      columnStyles: { 
+        3: { halign: 'center', fontStyle: 'bold', cellWidth: 15 } 
+      },
+      margin: { left: 15, right: 15 }
     });
 
+    // --- TOTAIS E ASSINATURAS ---
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    
+    // Total à direita
+    doc.setFontSize(10); doc.setTextColor(30, 58, 138); doc.setFont("helvetica", "bold");
     const totalQtd = movimentos.reduce((acc, curr) => acc + Math.abs(curr.quantidade || 0), 0);
-    const finalY = (doc as any).lastAutoTable.finalY + 12;
-    doc.setFontSize(11); doc.setTextColor(30, 58, 138); doc.setFont("helvetica", "bold");
     doc.text(`TOTAL DE UNIDADES: ${totalQtd}`, 195, finalY, { align: 'right' });
 
-    const sigY = finalY + 30;
-    doc.setDrawColor(200); doc.line(15, sigY, 90, sigY); doc.line(120, sigY, 195, sigY);
-    doc.setFontSize(8); doc.setTextColor(100); doc.setFont("helvetica", "normal");
-    doc.text("RESPONSÁVEL PELO ENVIO", 15, sigY + 5);
-    doc.text("CONFIRMAÇÃO DE RECEÇÃO", 120, sigY + 5);
+    // Linhas de Assinatura (Mais compactas)
+    const sigY = finalY + 25;
+    doc.setDrawColor(200); 
+    doc.line(15, sigY, 85, sigY); 
+    doc.line(125, sigY, 195, sigY);
+    
+    doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica", "normal");
+    doc.text("ASSINATURA ECONOMATO", 15, sigY + 5);
+    doc.text("RESPONSÁVEL RECEPÇÃO", 125, sigY + 5);
 
-    const fY = 275;
+    // --- RODAPÉ FIXO ---
+    const fY = 282;
     doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.5); doc.line(15, fY, 195, fY);
     doc.setFontSize(7); doc.setTextColor(0); doc.setFont("helvetica", "bold");
-    doc.text("LOTAÇOR - SERVIÇO DE APOIO À LOTA E COMERCIALIZAÇÃO DE PESCADO, S.A.", 15, fY + 5);
-    doc.setFont("helvetica", "normal"); doc.setTextColor(100);
+    doc.text("LOTAÇOR S.A. - Sistema de Gestão Economato", 15, fY + 5);
+    doc.setFont("helvetica", "normal"); doc.setTextColor(120);
     doc.text("Rua Eng. Abel Ferin Coutinho, 15 | 9500-191 Ponta Delgada | NIF: 512013322", 15, fY + 9);
-    doc.text("Email: economato@lotacor.pt | Telefone: 296 302 580", 145, fY + 9);
+    doc.text("economato@lotacor.pt | 296 302 580", 195, fY + 9, { align: 'right' });
 
     return doc;
   };
 
-  const handleEnviarEmail = async (pedido: any) => {
+const handleEnviarEmail = async (pedido: any) => {
     setAEnviarEmail(pedido.id);
     try {
-      const { data: contacto } = await supabase.from("contactos").select("email").eq("id", pedido.contacto_id).single();
+      // 1. Procurar o email do contacto
+      const { data: contacto } = await supabase
+        .from("contactos")
+        .select("email")
+        .eq("id", pedido.contacto_id)
+        .single();
+        
       let emailDestino = contacto?.email;
 
       if (!emailDestino) {
         const emailManual = prompt(`Não existe email para "${pedido.contactos?.nome}". Introduza manualmente:`);
-        if (!emailManual) { setAEnviarEmail(null); return; }
+        if (!emailManual) { 
+          setAEnviarEmail(null); 
+          return; 
+        }
         emailDestino = emailManual;
       }
 
-      const { data: movimentos } = await supabase.from("movimentos").select("*").eq("pedido_id", pedido.id).eq("tipo", "Saída");
-      if (!movimentos?.length) { alert("Sem movimentos para enviar."); setAEnviarEmail(null); return; }
+      // 2. Obter movimentos com o JOIN dos produtos para o resumo do email
+      const { data: movimentos } = await supabase
+        .from("movimentos")
+        .select(`
+          quantidade,
+          produto_id,
+          observacao,
+          produtos (nome)
+        `)
+        .eq("pedido_id", pedido.id)
+        .eq("tipo", "Saída");
 
+      if (!movimentos?.length) { 
+        alert("Sem movimentos para enviar."); 
+        setAEnviarEmail(null); 
+        return; 
+      }
+
+      // 3. Formatar itens para o corpo do email
+      const itensFormatados = movimentos.map(m => ({
+        nome: m.produtos?.nome || "Artigo",
+        quantidade: Math.abs(m.quantidade || 0)
+      }));
+
+      // 4. Gerar o PDF
       const doc = await gerarDocumentoPDF(pedido, movimentos);
       const pdfBase64 = doc.output('datauristring').split(',')[1];
 
+      // 5. Criar o Preheader (Resumo Rápido)
+      const totalQtd = itensFormatados.reduce((acc, i) => acc + i.quantidade, 0);
+      const resumoRapido = `Pedido #${pedido.id} para ${pedido.contactos?.nome || 'Unidade'}. Total: ${totalQtd} un.`;
+
+      // 6. Enviar para a API com todos os campos necessários
       const resposta = await fetch('/api/enviar-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -171,15 +245,25 @@ export default function PedidosTickets() {
           pedidoId: pedido.id,
           emailDestino,
           nomeUtilizador: pedido.requisitante,
-          pdfAnexo: pdfBase64
+          pdfAnexo: pdfBase64,
+          preheader: resumoRapido,
+          itens: itensFormatados // Enviando a lista para o corpo do email
         })
       });
 
       const resultado = await resposta.json();
-      if (resultado.success) alert(`✅ PDF enviado para ${emailDestino}`);
-      else alert("❌ Erro no envio: " + resultado.error);
-    } catch (err) { alert("❌ Erro ao processar envio."); }
-    finally { setAEnviarEmail(null); }
+      
+      if (resultado.success) {
+        alert(`✅ PDF enviado com sucesso para ${emailDestino}`);
+      } else {
+        alert("❌ Erro no envio: " + resultado.error);
+      }
+    } catch (err) { 
+      console.error("Erro no envio:", err);
+      alert("❌ Erro ao processar o envio do email."); 
+    } finally { 
+      setAEnviarEmail(null); 
+    }
   };
 
   const gerarGuiaPDF = async (pedido: any) => {
@@ -187,8 +271,15 @@ export default function PedidosTickets() {
     try {
       const { data: movimentos } = await supabase.from("movimentos").select("*").eq("pedido_id", pedido.id).eq("tipo", "Saída");
       if (!movimentos?.length) { alert("Pedido sem itens processados."); return; }
+      
       const doc = await gerarDocumentoPDF(pedido, movimentos);
-      doc.save(`Guia_Saida_Lotacor_${pedido.id}.pdf`);
+      
+      // --- LOGICA PARA MOSTRAR NA ABA E FAZER DOWNLOAD ---
+      const pdfBlob = doc.output('blob');
+      const url = URL.createObjectURL(pdfBlob);
+      window.open(url, '_blank'); // Abre noutra aba
+      doc.save(`Pedido_Lotacor_${pedido.id}.pdf`); // Faz o download
+      
     } finally { setGerandoPDF(null); }
   };
 
