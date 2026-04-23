@@ -13,12 +13,11 @@ export default function PainelAuditoria() {
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
 
-  // EFEITO: Se mudarmos para a aba Contactos e o filtro for de Stock (Entrada/Saída), limpa o filtro
+  // EFEITO: Sempre que mudamos de separador (Módulo), limpamos o filtro de Ação
+  // Isto evita que fiques com o filtro "Envio de Email" ativo se mudares para "Produtos"
   useEffect(() => {
-    if (moduloAtivo === "Contactos" && (filtroTipo === "Saída" || filtroTipo === "Entrada")) {
-      setFiltroTipo("Todos");
-    }
-  }, [moduloAtivo, filtroTipo]);
+    setFiltroTipo("Todos");
+  }, [moduloAtivo]);
 
   useEffect(() => {
     carregarAuditoria();
@@ -26,63 +25,86 @@ export default function PainelAuditoria() {
 
   const carregarAuditoria = async () => {
     setACarregar(true);
-    
-    // 1. Base da consulta
-    let query = supabase
-      .from("movimentos")
-      .select(`
-        id, created_at, tipo, quantidade, utilizador, observacao, 
-        produtos (nome),
-        perfis:utilizador (nome)
-      `);
+    let todosLogs: any[] = [];
 
-    // 2. APLICAR FILTROS DE MÓDULO CORRIGIDOS
-    if (moduloAtivo === "Produtos") {
-      // É um produto se tiver um ID de produto OU se a observação disser que apagou um artigo
-      query = query.or('produto_id.not.is.null,observacao.ilike.%artigo%');
-    } else if (moduloAtivo === "Contactos") {
-      query = query.ilike("observacao", "%contacto%");
-    }
-
-    // 3. APLICAR RESTANTES FILTROS
-    if (filtroTipo !== "Todos") {
-      query = query.eq("tipo", filtroTipo);
-    }
-    if (dataInicio) {
-      query = query.gte("created_at", `${dataInicio}T00:00:00Z`);
-    }
-    if (dataFim) {
-      query = query.lte("created_at", `${dataFim}T23:59:59Z`);
-    }
-
-    // 4. Executar Consulta
-    const { data, error } = await query
-      .order("created_at", { ascending: false })
-      .limit(500);
-
-    if (error) {
-      console.warn("Relação não detetada, a usar fallback...", error);
-      
-      let fallbackQuery = supabase
+    // --- 1. BUSCAR MOVIMENTOS (Produtos/Contactos) ---
+    if (moduloAtivo !== "Pedidos") {
+      let queryMovs = supabase
         .from("movimentos")
-        .select(`id, created_at, tipo, quantidade, utilizador, observacao, produtos (nome)`);
+        .select(`id, created_at, tipo, quantidade, utilizador, observacao, produtos (nome), perfis:utilizador (nome)`);
 
-      if (moduloAtivo === "Produtos") fallbackQuery = fallbackQuery.or('produto_id.not.is.null,observacao.ilike.%artigo%');
-      if (moduloAtivo === "Contactos") fallbackQuery = fallbackQuery.ilike("observacao", "%contacto%");
+      if (moduloAtivo === "Produtos") queryMovs = queryMovs.or('produto_id.not.is.null,observacao.ilike.%artigo%');
+      if (moduloAtivo === "Contactos") queryMovs = queryMovs.ilike("observacao", "%contacto%");
+      
+      // Só aplica filtro de tipo aos movimentos se o filtro fizer sentido para eles
+      const filtrosMovimento = ["Saída", "Entrada", "Criação", "Remoção", "Edição"];
+      if (filtroTipo !== "Todos" && filtrosMovimento.includes(filtroTipo)) {
+        queryMovs = queryMovs.eq("tipo", filtroTipo);
+      }
 
-      if (filtroTipo !== "Todos") fallbackQuery = fallbackQuery.eq("tipo", filtroTipo);
-      if (dataInicio) fallbackQuery = fallbackQuery.gte("created_at", `${dataInicio}T00:00:00Z`);
-      if (dataFim) fallbackQuery = fallbackQuery.lte("created_at", `${dataFim}T23:59:59Z`);
+      if (dataInicio) queryMovs = queryMovs.gte("created_at", `${dataInicio}T00:00:00Z`);
+      if (dataFim) queryMovs = queryMovs.lte("created_at", `${dataFim}T23:59:59Z`);
 
-      const { data: fallbackData } = await fallbackQuery
-        .order("created_at", { ascending: false })
-        .limit(500);
-        
-      setLogs(fallbackData || []);
-    } else {
-      setLogs(data || []);
+      const { data: movData } = await queryMovs.order("created_at", { ascending: false }).limit(500);
+
+      if (movData) {
+        const formatedMovs = movData.map(m => ({
+          id: `mov_${m.id}`,
+          created_at: m.created_at,
+          operador: m.perfis?.nome || "Sistema",
+          acao: m.tipo,
+          detalhePrincipal: m.produtos?.nome || (m.observacao?.toLowerCase().includes("contacto") ? "Gestão de Contactos" : "Registo de Artigo"),
+          subDetalhe: m.observacao,
+          quantidade: m.quantidade || 0
+        }));
+        todosLogs = [...todosLogs, ...formatedMovs];
+      }
     }
-    
+
+    // --- 2. BUSCAR LOGS DE PEDIDOS ---
+    if (moduloAtivo === "Todos" || moduloAtivo === "Pedidos") {
+      let queryPeds = supabase.from("logs_pedidos").select('*');
+      
+      if (dataInicio) queryPeds = queryPeds.gte("created_at", `${dataInicio}T00:00:00Z`);
+      if (dataFim) queryPeds = queryPeds.lte("created_at", `${dataFim}T23:59:59Z`);
+
+      const { data: pedData } = await queryPeds.order("created_at", { ascending: false }).limit(500);
+
+      if (pedData) {
+        let filteredPeds = pedData;
+        
+        if (filtroTipo !== "Todos") {
+          filteredPeds = pedData.filter(p => {
+            // Se estivermos na aba Pedidos, o valor do dropdown é exato à ação da base de dados
+            if (moduloAtivo === "Pedidos") {
+              return p.acao === filtroTipo;
+            } 
+            // Se estivermos na aba "Todos", temos de fazer a correspondência com os filtros genéricos
+            else {
+              if (filtroTipo === "Criação" && p.acao === "CRIADO") return true;
+              if (filtroTipo === "Remoção" && p.acao === "ELIMINADO") return true;
+              if (filtroTipo === "Edição" && p.acao === "ALTERAÇÃO DE ESTADO") return true;
+              return false;
+            }
+          });
+        }
+
+        const formatedPeds = filteredPeds.map(p => ({
+          id: `ped_${p.id}`,
+          created_at: p.created_at,
+          operador: p.utilizador,
+          acao: p.acao,
+          detalhePrincipal: `Ticket / Pedido #${p.pedido_id || 'N/A'}`,
+          subDetalhe: p.detalhes,
+          quantidade: 0
+        }));
+        todosLogs = [...todosLogs, ...formatedPeds];
+      }
+    }
+
+    // --- 3. JUNTAR E ORDENAR ---
+    todosLogs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    setLogs(todosLogs.slice(0, 500));
     setACarregar(false);
   };
 
@@ -94,22 +116,19 @@ export default function PainelAuditoria() {
   };
 
   const obterCorAcao = (tipo: string) => {
-    switch(tipo) {
-      case "Saída": return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-      case "Entrada": return "bg-green-500/20 text-green-400 border-green-500/30";
-      case "Remoção": return "bg-red-500/20 text-red-400 border-red-500/30";
-      case "Edição": return "bg-amber-500/20 text-amber-400 border-amber-500/30";
-      case "Criação": return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+    switch(tipo.toUpperCase()) {
+      case "SAÍDA": return "bg-blue-500/20 text-blue-400 border-blue-500/30";
+      case "ENTRADA": return "bg-green-500/20 text-green-400 border-green-500/30";
+      case "REMOÇÃO": 
+      case "ELIMINADO": return "bg-red-500/20 text-red-400 border-red-500/30";
+      case "EDIÇÃO": 
+      case "ALTERAÇÃO DE ESTADO": return "bg-amber-500/20 text-amber-400 border-amber-500/30";
+      case "CRIAÇÃO": 
+      case "CRIADO": return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+      case "ENVIO DE EMAIL": return "bg-purple-500/20 text-purple-400 border-purple-500/30";
+      case "RE-IMPRESSÃO": return "bg-slate-500/20 text-slate-300 border-slate-500/30";
       default: return "bg-gray-500/20 text-gray-400 border-gray-500/30";
     }
-  };
-
-  // Função auxiliar para dar um título bonito a artigos removidos ou contactos
-  const obterTituloDetalhe = (log: any) => {
-    if (log.produtos?.nome) return log.produtos.nome;
-    if (log.observacao?.toLowerCase().includes("contacto")) return "Gestão de Contactos";
-    if (log.observacao?.toLowerCase().includes("artigo")) return "Gestão de Catálogo (Remoção)";
-    return "Registo do Sistema";
   };
 
   return (
@@ -117,7 +136,7 @@ export default function PainelAuditoria() {
       
       {/* SEPARADORES DE MÓDULOS (TABS NO TOPO) */}
       <div className="flex gap-2 overflow-x-auto pb-px border-b border-white/10 mb-8 scrollbar-hide">
-        {["Todos", "Produtos", "Contactos"].map(modulo => (
+        {["Todos", "Pedidos", "Produtos", "Contactos"].map(modulo => (
           <button
             key={modulo}
             onClick={() => setModuloAtivo(modulo)}
@@ -127,7 +146,7 @@ export default function PainelAuditoria() {
                 : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
             }`}
           >
-            {modulo === "Todos" ? "🌍 " : modulo === "Produtos" ? "📦 " : "📇 "}
+            {modulo === "Todos" ? "🌍 " : modulo === "Pedidos" ? "📑 " : modulo === "Produtos" ? "📦 " : "📇 "}
             {modulo}
           </button>
         ))}
@@ -143,7 +162,7 @@ export default function PainelAuditoria() {
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Histórico de Alterações Lotaçor</p>
         </div>
 
-        {/* FILTROS EXISTENTES */}
+        {/* FILTROS (AGORA DINÂMICOS) */}
         <div className="flex flex-wrap gap-4 items-end">
           <div>
             <label className="text-[9px] font-black text-gray-400 uppercase block mb-1 px-1 tracking-widest">Ação</label>
@@ -154,28 +173,40 @@ export default function PainelAuditoria() {
             >
               <option value="Todos" className="text-black">Todas as Ações</option>
               
-              {/* Opções de Stock APENAS visíveis se não estiver na aba de Contactos */}
-              {moduloAtivo !== "Contactos" && (
+              {/* Se estamos na aba Pedidos, mostramos os filtros específicos dos Tickets */}
+              {moduloAtivo === "Pedidos" ? (
                 <>
-                  <option value="Saída" className="text-black">📦 Saídas</option>
-                  <option value="Entrada" className="text-black">📥 Entradas</option>
+                  <option value="CRIADO" className="text-black">✨ Criação de Pedido</option>
+                  <option value="ALTERAÇÃO DE ESTADO" className="text-black">🔄 Alteração de Estado</option>
+                  <option value="ELIMINADO" className="text-black">🗑️ Eliminação</option>
+                  <option value="ENVIO DE EMAIL" className="text-black">📧 Envio de Email</option>
+                  <option value="RE-IMPRESSÃO" className="text-black">🖨️ Re-impressão</option>
+                </>
+              ) : (
+                /* Se estamos nas outras abas, mostramos os filtros normais (com Saídas só para os Produtos) */
+                <>
+                  {(moduloAtivo === "Todos" || moduloAtivo === "Produtos") && (
+                    <>
+                      <option value="Saída" className="text-black">📦 Saídas</option>
+                      <option value="Entrada" className="text-black">📥 Entradas</option>
+                    </>
+                  )}
+                  <option value="Criação" className="text-black">✨ Criação</option>
+                  <option value="Remoção" className="text-black">🗑️ Remoção</option>
+                  <option value="Edição" className="text-black">✏️ Edição / Estado</option>
                 </>
               )}
-              
-              <option value="Criação" className="text-black">✨ Criação</option>
-              <option value="Remoção" className="text-black">🗑️ Remoção</option>
-              <option value="Edição" className="text-black">✏️ Edição</option>
             </select>
           </div>
 
           <div>
             <label className="text-[9px] font-black text-gray-400 uppercase block mb-1 px-1 tracking-widest">De</label>
-            <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold outline-none text-white" />
+            <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold outline-none text-white [color-scheme:dark]" />
           </div>
 
           <div>
             <label className="text-[9px] font-black text-gray-400 uppercase block mb-1 px-1 tracking-widest">Até</label>
-            <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold outline-none text-white" />
+            <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold outline-none text-white [color-scheme:dark]" />
           </div>
 
           {(filtroTipo !== "Todos" || dataInicio || dataFim || moduloAtivo !== "Todos") && (
@@ -204,29 +235,30 @@ export default function PainelAuditoria() {
             ) : (
               logs.map((log) => (
                 <tr key={log.id} className="text-xs hover:bg-white/5 transition-colors">
-                  <td className="py-4 px-4">
+                  <td className="py-4 px-4 whitespace-nowrap">
                     <span className="font-bold text-gray-300">{new Date(log.created_at).toLocaleDateString('pt-PT')}</span>
                     <span className="text-gray-500 ml-2">{new Date(log.created_at).toLocaleTimeString('pt-PT')}</span>
                   </td>
                   
-                  <td className="py-4 px-4 font-black text-amber-500 uppercase">
-                    {log.perfis?.nome || "Sistema Automático"}
+                  <td className="py-4 px-4 font-black text-amber-500 uppercase whitespace-nowrap">
+                    {log.operador || "Sistema Automático"}
                   </td>
 
                   <td className="py-4 px-4 text-center">
-                    <span className={`px-3 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest ${obterCorAcao(log.tipo)}`}>
-                      {log.tipo}
+                    <span className={`px-3 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${obterCorAcao(log.acao)}`}>
+                      {log.acao}
                     </span>
                   </td>
+                  
                   <td className="py-4 px-4">
                     <div className="flex flex-col">
                       <span className="font-bold text-white uppercase">
-                        {obterTituloDetalhe(log)}
+                        {log.detalhePrincipal}
                       </span>
                       {log.quantidade !== 0 && (
                         <span className="text-gray-400 text-[10px] mt-0.5">Qtd: {Math.abs(log.quantidade)}</span>
                       )}
-                      {log.observacao && <p className="text-[10px] text-gray-500 italic mt-0.5">{log.observacao}</p>}
+                      {log.subDetalhe && <p className="text-[10px] text-gray-500 italic mt-0.5">{log.subDetalhe}</p>}
                     </div>
                   </td>
                 </tr>

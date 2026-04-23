@@ -10,6 +10,8 @@ export default function Sidebar() {
   
   const [cargo, setCargo] = useState<string>("");
   const [relatoriosAberto, setRelatoriosAberto] = useState(pathname.includes("/dashboard/relatorios"));
+  // --- NOVO ESTADO: Controla se o dropdown do Inventário está aberto ---
+  const [inventarioAberto, setInventarioAberto] = useState(pathname.includes("/dashboard/inventario"));
 
   useEffect(() => {
     const carregarPerfil = async () => {
@@ -22,18 +24,14 @@ export default function Sidebar() {
     carregarPerfil();
   }, []);
 
-  // Sincronização: Fecha o menu se mudarmos para uma página que não seja relatório
+  // Sincronização: Fecha os menus se mudarmos para uma página que não pertence a eles
   useEffect(() => {
-    if (!pathname.includes("/dashboard/relatorios")) {
-      setRelatoriosAberto(false);
-    } else {
-      setRelatoriosAberto(true);
-    }
+    setRelatoriosAberto(pathname.includes("/dashboard/relatorios"));
+    setInventarioAberto(pathname.includes("/dashboard/inventario"));
   }, [pathname]);
 
   const isAdmin = cargo ? cargo.toLowerCase().includes("admin") : false;
 
-  // Função para estilização dinâmica dos botões
   const btnClass = (rota: string) => `w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all uppercase text-[10px] tracking-widest text-left ${
     pathname === rota ? 'bg-white text-[#1e3a8a] shadow-md font-bold' : 'text-blue-100 hover:bg-white/10'
   }`;
@@ -41,12 +39,22 @@ export default function Sidebar() {
   // Lógica de Navegação e Toggle dos Relatórios
   const manejarCliqueRelatorios = () => {
     if (pathname.includes("/dashboard/relatorios")) {
-      // Se já lá estamos, apenas abre/fecha
       setRelatoriosAberto(!relatoriosAberto);
     } else {
-      // Se viermos de fora, abre e navega
       setRelatoriosAberto(true);
-      router.push("/dashboard/relatorios");
+      router.push("/dashboard/relatorios/inventario"); // Navega para a primeira aba por defeito
+    }
+  };
+
+  // --- NOVA LÓGICA: Toggle do menu Inventário ---
+  const manejarCliqueInventario = () => {
+    if (pathname === "/dashboard/inventario") {
+      // Se já estivermos exatamente na Visão Geral, apenas abre ou fecha a gaveta
+      setInventarioAberto(!inventarioAberto);
+    } else {
+      // Se viermos de fora (ex: Home) ou de uma sub-página (ex: Catálogo), abre a aba e vai para a Visão Geral
+      setInventarioAberto(true);
+      router.push("/dashboard/inventario"); 
     }
   };
 
@@ -62,11 +70,28 @@ export default function Sidebar() {
       {/* NAVEGAÇÃO PRINCIPAL */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-hide">
         <button onClick={() => router.push("/dashboard")} className={btnClass("/dashboard")}><span>🏠</span> Home</button>
-        <button onClick={() => router.push("/dashboard/inventario")} className={btnClass("/dashboard/inventario")}><span>📋</span> Inventário</button>
-        <button onClick={() => router.push("/dashboard/gestao")} className={btnClass("/dashboard/gestao")}><span>📦</span> Stock</button>
-        <button onClick={() => router.push("/dashboard/pedidos")} className={btnClass("/dashboard/pedidos")}><span>📋</span> Pedidos</button>
+        
+        {/* --- NOVA SECÇÃO INVENTÁRIO EXPANSÍVEL --- */}
+        <div className="py-1">
+          <button 
+            onClick={manejarCliqueInventario} 
+            className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all uppercase text-[10px] tracking-widest text-left ${pathname.includes("/dashboard/inventario") ? 'bg-white/10 text-white font-bold' : 'text-blue-100 hover:bg-white/10'}`}
+          >
+            <div className="flex items-center gap-3"><span>📋</span> Inventário</div>
+            <span className={`text-[7px] transition-transform duration-300 ${inventarioAberto ? 'rotate-180' : ''}`}>▼</span>
+          </button>
+
+          {inventarioAberto && (
+            <div className="mt-1 ml-6 border-l border-white/10 pl-2 space-y-0.5 animate-in slide-in-from-top-1 duration-200">
+              <button onClick={() => router.push("/dashboard/inventario/catalogo")} className={`w-full text-left px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest ${pathname === "/dashboard/inventario/catalogo" ? 'text-amber-400 font-bold' : 'text-blue-300 hover:text-white'}`}>• Catálogo</button>
+              <button onClick={() => router.push("/dashboard/inventario/stock")} className={`w-full text-left px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest ${pathname === "/dashboard/inventario/stock" ? 'text-amber-400 font-bold' : 'text-blue-300 hover:text-white'}`}>• Stock</button>
+              <button onClick={() => router.push("/dashboard/inventario/reposicao")} className={`w-full text-left px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest ${pathname === "/dashboard/inventario/reposicao" ? 'text-amber-400 font-bold' : 'text-blue-300 hover:text-white'}`}>• Reposição</button>
+            </div>
+          )}
+        </div>
+
+        <button onClick={() => router.push("/dashboard/pedidos")} className={btnClass("/dashboard/pedidos")}><span>📑</span> Pedidos</button>
         <button onClick={() => router.push("/dashboard/contactos")} className={btnClass("/dashboard/contactos")}><span>📇</span> Contactos</button>
-        <button onClick={() => router.push("/dashboard/reposicao")} className={btnClass("/dashboard/reposicao")}><span>🛒</span> Reposição</button>
 
         {/* SECÇÃO RELATÓRIOS EXPANSÍVEL */}
         <div className="py-1">
