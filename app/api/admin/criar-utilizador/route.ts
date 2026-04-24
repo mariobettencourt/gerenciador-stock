@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
-  // OS LOGS DE DIAGNÓSTICO ENTRAM AQUI (DENTRO DA FUNÇÃO)
+  // Logs de diagnóstico mantidos para segurança
   console.log("DEBUG ENV -> URL:", process.env.NEXT_PUBLIC_SUPABASE_URL ? "OK" : "Vazio");
   console.log("DEBUG ENV -> KEY:", process.env.SUPABASE_SERVICE_ROLE_KEY ? "OK" : "Vazio");
 
@@ -19,15 +19,17 @@ export async function POST(request: Request) {
       );
     }
 
+    // Cliente Admin para gestão de utilizadores
     const supabaseAdmin = createClient(supabaseUrl, serviceRole, {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
+    // CRIAÇÃO DO UTILIZADOR
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       user_metadata: { nome, cargo },
-      email_confirm: true
+      email_confirm: false // <--- ALTERADO: Agora o Supabase envia o e-mail de confirmação
     });
 
     if (error) {

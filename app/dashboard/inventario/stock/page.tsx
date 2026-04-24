@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import toast, { Toaster } from 'react-hot-toast'; // 1. Importar o sistema moderno
 
 export default function GestaoStock() {
   const [produtos, setProdutos] = useState<any[]>([]);
@@ -71,6 +72,9 @@ export default function GestaoStock() {
   const submeter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selecionado || quantidade <= 0 || processando) return;
+    
+    // Iniciar o processo com um Toast de loading (opcional, mas pro)
+    const toastId = toast.loading(`A processar ${tipo.toLowerCase()}...`);
     setProcessando(true);
     
     try {
@@ -78,7 +82,7 @@ export default function GestaoStock() {
 
       if (tipo === "Saída") {
         if (selecionado.quantidade < quantidade) {
-            alert("Erro: Stock insuficiente!");
+            toast.error("Stock insuficiente para realizar a saída!", { id: toastId });
             setProcessando(false);
             return;
         }
@@ -108,13 +112,15 @@ export default function GestaoStock() {
 
       if (errAudit) throw errAudit;
 
-      alert(`✅ ${tipo} registada com sucesso!`);
+      // SUCESSO!
+      toast.success(`${tipo} de ${quantidade} un. registada com sucesso!`, { id: toastId });
+      
       setQuantidade(0);
       await carregarProdutos();
       setSelecionado(null);
 
     } catch (err: any) {
-      alert("Erro no processamento: " + err.message);
+      toast.error("Erro: " + err.message, { id: toastId });
     } finally {
       setProcessando(false);
     }
@@ -130,8 +136,12 @@ export default function GestaoStock() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-14rem)] min-h-[600px]">
       
+      {/* 2. Colocar o contentor das notificações no topo */}
+      <Toaster position="top-center" reverseOrder={false} />
+
       {/* PAINEL ESQUERDO: LISTA DE PRODUTOS */}
       <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 flex flex-col overflow-hidden h-full">
+        {/* ... Resto do código da lista (inalterado) ... */}
         <div className="p-8 bg-[#f8fafc] border-b space-y-5">
           <div className="font-black text-[10px] uppercase text-[#1e3a8a] tracking-[0.2em]">
             1. Escolher Material
@@ -188,6 +198,7 @@ export default function GestaoStock() {
 
       {/* PAINEL DIREITO: OPERAÇÃO */}
       <div className="bg-white rounded-[3rem] shadow-xl p-8 lg:p-12 flex flex-col justify-center border border-slate-200 relative overflow-hidden h-full">
+        {/* ... Resto do código do formulário (inalterado) ... */}
         <div className="absolute top-0 right-0 p-12 opacity-[0.02] text-9xl font-black italic -rotate-12 select-none pointer-events-none text-blue-900 uppercase">{tipo}</div>
 
         {selecionado ? (
