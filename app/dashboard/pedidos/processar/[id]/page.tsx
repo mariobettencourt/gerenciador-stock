@@ -14,6 +14,7 @@ export default function ProcessarPedido() {
   const [aCarregar, setACarregar] = useState(true);
   
   const [idUtilizador, setIdUtilizador] = useState("");
+  const [nomeOperador, setNomeOperador] = useState("Sistema"); // NOVO: Estado para guardar o nome real
   const [linhas, setLinhas] = useState<any[]>([]);
   const [modalCatAberto, setModalCatAberto] = useState(false);
   const [pesquisa, setPesquisa] = useState("");
@@ -21,15 +22,27 @@ export default function ProcessarPedido() {
 
   useEffect(() => {
     const iniciar = async () => {
+      // 1. NOVO: Buscar o ID e o Nome do Operador para os Logs ficarem bonitos
       const { data: { user } } = await supabase.auth.getUser();
-      if (user?.id) setIdUtilizador(user.id);
+      if (user?.id) {
+          setIdUtilizador(user.id);
+          const { data: perfil } = await supabase.from('perfis').select('nome').eq('id', user.id).single();
+          setNomeOperador(perfil?.nome || user.email?.split('@')[0] || "Sistema");
+      }
 
       const { data: ped } = await supabase
         .from("pedidos")
         .select(`*, contactos!contacto_id (nome, departamento)`)
         .eq("id", id)
         .single();
-      if (ped) setPedido(ped);
+      
+      // Proteção de Array para o Destinatário (prevenir o erro do TypeScript)
+      if (ped) {
+          setPedido({
+              ...ped,
+              contactos: Array.isArray(ped.contactos) ? ped.contactos[0] : ped.contactos
+          });
+      }
 
       const { data: prods } = await supabase.from("produtos").select("*").order("nome");
       if (prods) setCatalogo(prods);
@@ -155,6 +168,14 @@ export default function ProcessarPedido() {
       // 5. Concluir Pedido
       await supabase.from("pedidos").update({ estado: "Processado" }).eq("id", id);
       
+      // 6. NOVO: GRAVAR O HISTÓRICO (Rasto de Auditoria)
+      await supabase.from("logs_pedidos").insert({
+        pedido_id: parseInt(id as string),
+        acao: "PROCESSADO",
+        detalhes: `A separação de material foi concluída com ${linhas.length} artigo(s) diferente(s).`,
+        utilizador: nomeOperador
+      });
+
       toast.success("✅ Pedido processado e lotes atualizados!", { id: toastId });
       router.push("/dashboard/pedidos");
 

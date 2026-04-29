@@ -173,8 +173,14 @@ export const enviarPedidoPorEmail = async (pedido: any, emailDestino: string, no
 
         const doc = await gerarDocumentoPDF(pedido, movimentos);
         const pdfBase64 = doc.output('datauristring').split(',')[1];
-        const itensFormatados = movimentos.map(m => ({ nome: m.produtos?.nome || "Artigo", quantidade: Math.abs(m.quantidade || 0) }));
-
+// Localiza o map dentro da função enviarPedidoPorEmail
+const itensFormatados = movimentos.map(m => ({ 
+    // Corrigimos aqui para verificar se é um array antes de aceder ao nome
+    nome: Array.isArray(m.produtos) 
+        ? m.produtos[0]?.nome 
+        : (m.produtos as any)?.nome || "Artigo", 
+    quantidade: Math.abs(m.quantidade || 0) 
+}));
         const resposta = await fetch('/api/enviar-email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

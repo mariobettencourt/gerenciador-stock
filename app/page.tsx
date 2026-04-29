@@ -109,7 +109,7 @@ export default function Login() {
         </form>
 
         <p className="text-center mt-8 text-[9px] font-bold text-gray-300 uppercase tracking-[0.2em]">
-          Lotaçor S.A. © 2026 | Praia da Vitória
+          Lotaçor S.A. © 2026 | DI
         </p>
 
       </div>
