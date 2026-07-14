@@ -16,8 +16,8 @@ export async function POST(request: Request) {
     const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
     if (authError) throw authError;
 
-    // 2. O perfil na tabela pública será apagado automaticamente se tiveres 
-    -- o "ON DELETE CASCADE" configurado na BD, caso contrário:
+        // 2. O perfil na tabela pública será apagado automaticamente se tiveres 
+    // o "ON DELETE CASCADE" configurado na BD, caso contrário:
     const { error: profileError } = await supabaseAdmin
       .from("perfis")
       .delete()

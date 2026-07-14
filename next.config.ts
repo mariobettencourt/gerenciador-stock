@@ -1,14 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Forçar o HMR a aceitar o IP da rede
-  devServer: {
-    client: {
-      overlay: false,
-      logging: 'none',
-    },
-  },
-  // Se estiveres a usar a versão mais recente (v13/14/15)
-  // podes precisar disto para evitar o erro de WebSocket
+  // O NextConfig não tem propriedade 'devServer'.
+  // Para controlar o overlay de erros, usar onRecvError ou desligar via env var.
   images: { unoptimized: true } 
 };
 

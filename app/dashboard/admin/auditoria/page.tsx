@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 
 export default function PainelAuditoria() {
@@ -13,21 +13,15 @@ export default function PainelAuditoria() {
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
 
-  // EFEITO: Sempre que mudamos de separador (Módulo), limpamos o filtro de Ação
-  // Isto evita que fiques com o filtro "Envio de Email" ativo se mudares para "Produtos"
   useEffect(() => {
     setFiltroTipo("Todos");
   }, [moduloAtivo]);
 
-  useEffect(() => {
-    carregarAuditoria();
-  }, [filtroTipo, dataInicio, dataFim, moduloAtivo]);
-
-  const carregarAuditoria = async () => {
+  const carregarAuditoria = useCallback(async () => {
     setACarregar(true);
     let todosLogs: any[] = [];
 
-    // --- 1. BUSCAR MOVIMENTOS (Produtos/Contactos) ---
+    // --- 1. BUSCAR MOVIMENTOS ---
     if (moduloAtivo !== "Pedidos") {
       let queryMovs = supabase
         .from("movimentos")
@@ -36,7 +30,6 @@ export default function PainelAuditoria() {
       if (moduloAtivo === "Produtos") queryMovs = queryMovs.or('produto_id.not.is.null,observacao.ilike.%artigo%');
       if (moduloAtivo === "Contactos") queryMovs = queryMovs.ilike("observacao", "%contacto%");
       
-      // Só aplica filtro de tipo aos movimentos se o filtro fizer sentido para eles
       const filtrosMovimento = ["Saída", "Entrada", "Criação", "Remoção", "Edição"];
       if (filtroTipo !== "Todos" && filtrosMovimento.includes(filtroTipo)) {
         queryMovs = queryMovs.eq("tipo", filtroTipo);
@@ -51,9 +44,9 @@ export default function PainelAuditoria() {
         const formatedMovs = movData.map(m => ({
           id: `mov_${m.id}`,
           created_at: m.created_at,
-          operador: m.perfis?.nome || "Sistema",
+          operador: (Array.isArray(m.perfis) ? m.perfis[0]?.nome : (m.perfis as any)?.nome) || "Sistema",
           acao: m.tipo,
-          detalhePrincipal: m.produtos?.nome || (m.observacao?.toLowerCase().includes("contacto") ? "Gestão de Contactos" : "Registo de Artigo"),
+          detalhePrincipal: (Array.isArray(m.produtos) ? m.produtos[0]?.nome : (m.produtos as any)?.nome) || (m.observacao?.toLowerCase().includes("contacto") ? "Gestão de Contactos" : "Registo de Artigo"),
           subDetalhe: m.observacao,
           quantidade: m.quantidade || 0
         }));
@@ -75,12 +68,9 @@ export default function PainelAuditoria() {
         
         if (filtroTipo !== "Todos") {
           filteredPeds = pedData.filter(p => {
-            // Se estivermos na aba Pedidos, o valor do dropdown é exato à ação da base de dados
             if (moduloAtivo === "Pedidos") {
               return p.acao === filtroTipo;
-            } 
-            // Se estivermos na aba "Todos", temos de fazer a correspondência com os filtros genéricos
-            else {
+            } else {
               if (filtroTipo === "Criação" && p.acao === "CRIADO") return true;
               if (filtroTipo === "Remoção" && p.acao === "ELIMINADO") return true;
               if (filtroTipo === "Edição" && p.acao === "ALTERAÇÃO DE ESTADO") return true;
@@ -106,7 +96,11 @@ export default function PainelAuditoria() {
     todosLogs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setLogs(todosLogs.slice(0, 500));
     setACarregar(false);
-  };
+  }, [moduloAtivo, filtroTipo, dataInicio, dataFim]);
+
+  useEffect(() => {
+    carregarAuditoria();
+  }, [carregarAuditoria]);
 
   const limparFiltros = () => {
     setModuloAtivo("Todos");
@@ -134,7 +128,6 @@ export default function PainelAuditoria() {
   return (
     <div className="bg-[#0f172a] rounded-[3rem] p-10 shadow-2xl text-white mt-8 h-fit relative">
       
-      {/* SEPARADORES DE MÓDULOS (TABS NO TOPO) */}
       <div className="flex gap-2 overflow-x-auto pb-px border-b border-white/10 mb-8 scrollbar-hide">
         {["Todos", "Pedidos", "Produtos", "Contactos"].map(modulo => (
           <button
@@ -162,7 +155,6 @@ export default function PainelAuditoria() {
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Histórico de Alterações Lotaçor</p>
         </div>
 
-        {/* FILTROS (AGORA DINÂMICOS) */}
         <div className="flex flex-wrap gap-4 items-end">
           <div>
             <label className="text-[9px] font-black text-gray-400 uppercase block mb-1 px-1 tracking-widest">Ação</label>
@@ -173,7 +165,6 @@ export default function PainelAuditoria() {
             >
               <option value="Todos" className="text-black">Todas as Ações</option>
               
-              {/* Se estamos na aba Pedidos, mostramos os filtros específicos dos Tickets */}
               {moduloAtivo === "Pedidos" ? (
                 <>
                   <option value="CRIADO" className="text-black">✨ Criação de Pedido</option>
@@ -183,7 +174,6 @@ export default function PainelAuditoria() {
                   <option value="RE-IMPRESSÃO" className="text-black">🖨️ Re-impressão</option>
                 </>
               ) : (
-                /* Se estamos nas outras abas, mostramos os filtros normais (com Saídas só para os Produtos) */
                 <>
                   {(moduloAtivo === "Todos" || moduloAtivo === "Produtos") && (
                     <>

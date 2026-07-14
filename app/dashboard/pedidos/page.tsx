@@ -12,11 +12,9 @@ export default function PedidosTickets() {
   const [listaContatos, setListaContatos] = useState<any[]>([]);
   const [aCarregar, setACarregar] = useState(true);
   
-  // Limite de Memória (Paginação)
   const [limitePedidos, setLimitePedidos] = useState(50);
   const [carregandoMais, setCarregandoMais] = useState(false);
   
-  // Estados de UI (Explorador e Modais)
   const [modalAberto, setModalAberto] = useState(false);
   const [exploradorAberto, setExploradorAberto] = useState(false);
   const [origemExplorador, setOrigemExplorador] = useState<"novo" | "editar">("novo");
@@ -28,14 +26,12 @@ export default function PedidosTickets() {
   const [modalEliminar, setModalEliminar] = useState<{ aberto: boolean; id: number | null }>({ aberto: false, id: null });
   const [emailInput, setEmailInput] = useState("");
 
-  // NOVOS MODAIS: Editar e Histórico
   const [modalEditar, setModalEditar] = useState<{ aberto: boolean; form: any }>({ aberto: false, form: null });
   const [modalHistorico, setModalHistorico] = useState<{ aberto: boolean; id: number | null; logs: any[]; aCarregar: boolean }>({ aberto: false, id: null, logs: [], aCarregar: false });
 
-  // Filtros Globais e Pesquisa
   const [filtroEstado, setFiltroEstado] = useState("Todos");
   const [filtroData, setFiltroData] = useState("");
-  const [pesquisaGeral, setPesquisaGeral] = useState(""); // Nova Barra de Pesquisa
+  const [pesquisaGeral, setPesquisaGeral] = useState("");
   const [nomeOperador, setNomeOperador] = useState("Sistema"); 
 
   const [formulario, setFormulario] = useState({ quem_pede: "", texto_pedido: "", contacto: null as any });
@@ -57,7 +53,6 @@ export default function PedidosTickets() {
     const { data: conts } = await supabase.from("contactos").select("id, nome, departamento, email").order("nome");
     setListaContatos(conts || []);
     
-    // LIMITAMOS PARA POUPAR MEMÓRIA
     const { data: peds } = await supabase.from("pedidos").select(`*, contactos!contacto_id (nome, departamento, email)`).order("created_at", { ascending: false }).limit(limite);
     
     const pedsFormatados = peds?.map(p => ({
@@ -69,7 +64,6 @@ export default function PedidosTickets() {
     setCarregandoMais(false);
   };
 
-  // FUNÇÃO PARA GRAVAR O RASTO DE AUDITORIA
   const registarLog = async (pedidoId: number, acao: string, detalhes: string) => {
     await supabase.from("logs_pedidos").insert({
       pedido_id: pedidoId,
@@ -102,7 +96,6 @@ export default function PedidosTickets() {
     }).eq("id", modalEditar.form.id);
 
     if (!error) {
-      // REGISTAR LOG DA EDIÇÃO
       await registarLog(modalEditar.form.id, "EDITADO", "Informações do requisitante/destino atualizadas.");
       
       toast.success("Pedido atualizado!", { id: loadingId });
@@ -129,7 +122,8 @@ export default function PedidosTickets() {
       if (!error) { toast.success("Pedido eliminado."); carregarDados(limitePedidos); } 
       else toast.error("Erro ao eliminar pedido.");
     } else {
-      const sucesso = await estornarEPagarPedido(modalEliminar.id, supabase);
+      // CORRIGIDO: estornarEPagarPedido só recebe 1 argumento
+      const sucesso = await estornarEPagarPedido(modalEliminar.id);
       if (sucesso) carregarDados(limitePedidos);
     }
     setModalEliminar({ aberto: false, id: null });
@@ -141,7 +135,6 @@ export default function PedidosTickets() {
     return { badge: 'bg-emerald-50 text-emerald-600 border-emerald-200', barra: 'bg-emerald-500' };
   };
 
-  // LÓGICA DE FILTRAGEM
   const pedidosMostrados = pedidos.filter(p => {
     const matchEstado = filtroEstado === "Todos" || p.estado === filtroEstado;
     const matchData = !filtroData || p.created_at.includes(filtroData);
@@ -171,7 +164,6 @@ export default function PedidosTickets() {
     <main className="flex-1 p-8 md:p-12 bg-slate-50 min-h-screen overflow-y-auto font-sans">
       <Toaster position="top-center" />
 
-      {/* HEADER E TABS */}
       <header className="mb-10 flex flex-col gap-6">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
           <div>
@@ -182,7 +174,6 @@ export default function PedidosTickets() {
           </div>
 
           <div className="flex flex-wrap gap-4 items-center w-full lg:w-auto">
-            {/* NOVA BARRA DE PESQUISA */}
             <div className="relative w-full md:w-64">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
                 <input 
@@ -203,7 +194,6 @@ export default function PedidosTickets() {
           </div>
         </div>
 
-        {/* BARRA DE TABS */}
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide pt-2">
           {tabsEstado.map(tab => (
             <button 
@@ -223,7 +213,6 @@ export default function PedidosTickets() {
         </div>
       </header>
 
-      {/* LISTAGEM EM GRELHA (GRID) */}
       <div className="min-h-[50vh]">
         {aCarregar && limitePedidos === 50 ? (
             <div className="text-center py-32 flex flex-col items-center justify-center">
@@ -249,7 +238,6 @@ export default function PedidosTickets() {
                         {p.estado}
                       </span>
                       <div className="flex items-center gap-2">
-                        {/* BOTÃO HISTÓRICO / LOGS */}
                         <button onClick={() => abrirModalHistorico(p.id)} className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:text-[#1e3a8a] hover:bg-blue-50 transition-colors" title="Ver Histórico">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                         </button>
@@ -276,7 +264,6 @@ export default function PedidosTickets() {
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>
                           Processar
                         </button>
-                        {/* BOTÃO EDITAR */}
                         <button onClick={() => setModalEditar({ aberto: true, form: { id: p.id, quem_pede: p.requisitante, texto_pedido: p.observacao, contacto: p.contactos } })} className="flex-1 bg-amber-50 text-amber-600 px-2 py-4 rounded-xl font-black text-[9px] uppercase flex justify-center items-center gap-1 hover:bg-amber-100 transition-all border border-amber-100">
                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                            Editar
@@ -291,7 +278,6 @@ export default function PedidosTickets() {
                           Guia
                         </button>
                         <button onClick={async () => { 
-                          // REGISTAR LOG DE ENTREGUE AQUI
                           await supabase.from("pedidos").update({ estado: "Concluído" }).eq("id", p.id); 
                           await registarLog(p.id, "ENTREGUE", "Material confirmado e entregue ao destino.");
                           carregarDados(limitePedidos); 
@@ -329,7 +315,6 @@ export default function PedidosTickets() {
           </div>
         )}
 
-        {/* BOTÃO CARREGAR MAIS (PAGINAÇÃO) */}
         {!aCarregar && pedidos.length >= limitePedidos && (
             <div className="flex justify-center mt-10 mb-6">
                 <button 
@@ -343,7 +328,6 @@ export default function PedidosTickets() {
         )}
       </div>
 
-      {/* --- MODAL NOVO PEDIDO --- */}
       {modalAberto && (
         <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-[3.5rem] p-10 md:p-14 w-full max-w-lg shadow-2xl animate-in zoom-in duration-200">
@@ -365,7 +349,6 @@ export default function PedidosTickets() {
                 <button onClick={async () => {
                     if(!formulario.contacto) return toast.error("Selecione o destino!");
                     
-                    // REGISTAR LOG DE CRIAÇÃO AQUI
                     const { data: novoPed, error } = await supabase.from("pedidos")
                         .insert({ requisitante: formulario.quem_pede, contacto_id: formulario.contacto.id, observacao: formulario.texto_pedido, estado: "Pendente" })
                         .select().single();
@@ -385,7 +368,6 @@ export default function PedidosTickets() {
         </div>
       )}
 
-      {/* --- MODAL EDITAR PEDIDO PENDENTE --- */}
       {modalEditar.aberto && (
         <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-[3.5rem] p-10 md:p-14 w-full max-w-lg shadow-2xl animate-in zoom-in duration-200 border-4 border-amber-100">
@@ -411,7 +393,6 @@ export default function PedidosTickets() {
         </div>
       )}
 
-      {/* --- MODAL HISTÓRICO / LOGS --- */}
       {modalHistorico.aberto && (
         <div className="fixed inset-0 bg-[#0f172a]/80 backdrop-blur-md flex items-center justify-center z-[110] p-4">
           <div className="bg-white rounded-[3.5rem] p-10 w-full max-w-lg shadow-2xl animate-in slide-in-from-bottom-8 duration-300 flex flex-col max-h-[80vh]">
@@ -450,7 +431,6 @@ export default function PedidosTickets() {
         </div>
       )}
 
-      {/* EXPLORADOR VISUAL */}
       {exploradorAberto && (
         <div className="fixed inset-0 bg-[#0f172a]/95 backdrop-blur-md z-[120] flex items-center justify-center p-4 md:p-12">
           <div className="bg-white w-full max-w-6xl h-[85vh] rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
@@ -499,7 +479,6 @@ export default function PedidosTickets() {
         </div>
       )}
 
-      {/* --- Restantes Modais (Email e Eliminar) --- */}
       {modalEmail.aberto && (
         <div className="fixed inset-0 bg-[#0f172a]/95 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
           <div className="bg-white rounded-[3.5rem] p-12 w-full max-w-md shadow-2xl border-4 border-white">

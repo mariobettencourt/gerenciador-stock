@@ -189,7 +189,8 @@ const itensFormatados = movimentos.map(m => ({
                 emailDestino,
                 nomeUtilizador: nomeOperador,
                 pdfAnexo: pdfBase64,
-                itens: itensFormatados
+                itens: itensFormatados,
+                preheader: `Pedido #${pedido.id} - Documento oficial Lotaçor SA`
             })
         });
 

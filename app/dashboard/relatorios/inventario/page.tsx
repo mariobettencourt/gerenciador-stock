@@ -17,7 +17,6 @@ export default function RelatorioInventario() {
   const carregarValorizacaoFIFO = async () => {
     setACarregar(true);
     
-    // 1. Procurar todos os movimentos que ainda têm stock disponível (Lotes FIFO ativos)
     const { data: lotes, error } = await supabase
       .from("movimentos")
       .select(`
@@ -38,16 +37,19 @@ export default function RelatorioInventario() {
       return;
     }
 
-    // 2. Agrupar os lotes por produto para uma visualização limpa
     const agrupado: any = {};
 
     lotes?.forEach((lote) => {
       const pId = lote.produto_id;
+      // CORRIGIDO: produtos é sempre array do Supabase join
+      const produtosArr = Array.isArray(lote.produtos) ? lote.produtos : [];
+      const prod = produtosArr[0] || {};
+
       if (!agrupado[pId]) {
         agrupado[pId] = {
-          nome: lote.produtos.nome,
-          categoria: lote.produtos.categoria || "Geral",
-          local: lote.produtos.local,
+          nome: prod.nome || "Desconhecido",
+          categoria: prod.categoria || "Geral",
+          local: prod.local || "---",
           quantidadeTotal: 0,
           valorTotal: 0,
           lotesContagem: 0
@@ -72,7 +74,6 @@ export default function RelatorioInventario() {
 
   return (
     <main className="flex-1 p-8 md:p-12 bg-slate-50 h-screen overflow-y-auto">
-      {/* Botão Voltar */}
       <button 
         onClick={() => router.back()}
         className="mb-6 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#1e3a8a] transition-colors"
@@ -97,7 +98,6 @@ export default function RelatorioInventario() {
         </div>
       </header>
 
-      {/* Filtros Rápidos */}
       <div className="flex gap-2 overflow-x-auto pb-6 scrollbar-hide">
         {categorias.map(cat => (
           <button
@@ -112,7 +112,6 @@ export default function RelatorioInventario() {
         ))}
       </div>
 
-      {/* Tabela de Inventário */}
       <div className="bg-white rounded-[2.5rem] shadow-sm overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>

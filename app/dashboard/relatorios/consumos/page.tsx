@@ -45,24 +45,31 @@ export default function RelatorioConsumos() {
     const agrupado: any = {};
 
     movimentos?.forEach((mov) => {
-      const unidadeNome = mov.pedidos?.contactos?.nome || "Consumo Direto / Outros";
-      const produtoNome = mov.produtos?.nome || "Artigo Desconhecido";
+      // CORRIGIDO: pedidos é um array, contactos dentro de pedidos é array
+      const pedidosArr = Array.isArray(mov.pedidos) ? mov.pedidos : [mov.pedidos].filter(Boolean);
+      const primeiroPedido = pedidosArr[0] || {};
+      const contactosArr = Array.isArray(primeiroPedido.contactos) ? primeiroPedido.contactos : [];
+      const contacto = contactosArr[0] || {};
+      const produtosArr = Array.isArray(mov.produtos) ? mov.produtos : [];
+      const produto = produtosArr[0] || {};
+
+      const unidadeNome = contacto?.nome || "Consumo Direto / Outros";
+      const produtoNome = produto?.nome || "Artigo Desconhecido";
       const custoTotalMov = Math.abs(mov.quantidade) * (mov.custo_unitario || 0);
 
       if (!agrupado[unidadeNome]) {
         agrupado[unidadeNome] = {
           nome: unidadeNome,
-          departamento: mov.pedidos?.contactos?.departamento || "Geral",
+          departamento: contacto?.departamento || "Geral",
           valorTotal: 0,
           itensTotal: 0,
-          materiais: {} // Vamos agrupar materiais aqui dentro
+          materiais: {}
         };
       }
 
       agrupado[unidadeNome].valorTotal += custoTotalMov;
       agrupado[unidadeNome].itensTotal += Math.abs(mov.quantidade);
 
-      // Lógica para a lista detalhada de materiais por unidade
       if (!agrupado[unidadeNome].materiais[produtoNome]) {
         agrupado[unidadeNome].materiais[produtoNome] = { nome: produtoNome, qtd: 0, gasto: 0 };
       }
@@ -72,7 +79,6 @@ export default function RelatorioConsumos() {
 
     const resultado = Object.values(agrupado).map((unidade: any) => ({
       ...unidade,
-      // Converter o objeto de materiais num array ordenado por quantidade
       materiais: Object.values(unidade.materiais).sort((a: any, b: any) => b.qtd - a.qtd)
     })).sort((a: any, b: any) => b.valorTotal - a.valorTotal);
     
@@ -91,7 +97,7 @@ export default function RelatorioConsumos() {
       <header className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-10 gap-6">
         <div>
           <h1 className="text-4xl font-black text-[#0f172a] tracking-tighter uppercase italic leading-none">
-            Gastos por <span className="text-blue-600">Unidade</span>
+            Gastos por <span className="text-blue-600">Destinatário</span>
           </h1>
           <div className="h-1.5 w-24 bg-blue-600 rounded-full mt-3"></div>
         </div>
@@ -136,7 +142,6 @@ export default function RelatorioConsumos() {
               </div>
             </div>
 
-            {/* DROPDOWN DETALHADO */}
             {unidadeAberta === c.nome && (
               <div className="mx-8 bg-white border-x border-b border-slate-200 rounded-b-[2rem] p-6 shadow-inner animate-in slide-in-from-top-4 duration-300">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4">Materiais Requisitados (Ordenado por Qtd)</p>

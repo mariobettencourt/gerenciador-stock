@@ -34,8 +34,6 @@ export default function NecessidadesReposicao() {
 
   const totalFiltrado = necessidadesFiltradas.length;
 
-  // --- LÓGICA DO PDF AGORA ACEITA PARÂMETROS ---
-  // Passamos a lista de itens que queremos imprimir e o nome da categoria (para o título)
   const gerarPDFProfissional = async (itensParaImprimir: any[], nomeCategoria: string = "Todas") => {
     const doc = new jsPDF();
     const dataHoje = new Date().toLocaleDateString('pt-PT');
@@ -52,7 +50,6 @@ export default function NecessidadesReposicao() {
     const logoImg = await carregarLogo();
     if (logoImg) doc.addImage(logoImg, 'JPEG', 15, 10, 85, 25);
 
-    // O Título muda se for uma impressão parcial
     const tituloDoc = nomeCategoria === "Todas" ? "LISTA DE REPOSIÇÃO" : `REPOSIÇÃO: ${nomeCategoria.toUpperCase()}`;
 
     doc.setTextColor(30, 58, 138); doc.setFont("helvetica", "bold"); doc.setFontSize(22);
@@ -63,7 +60,6 @@ export default function NecessidadesReposicao() {
 
     doc.setDrawColor(30, 58, 138); doc.setLineWidth(0.8); doc.line(15, 38, 195, 38);
 
-    // Agrupa APENAS os itens que foram passados na função
     const categoriasPresentes = Array.from(new Set(itensParaImprimir.map(p => p.categoria || "Geral"))).sort();
     let currentY = 50;
 
@@ -84,7 +80,7 @@ export default function NecessidadesReposicao() {
           "" 
         ]),
         theme: 'plain',
-        headStyles: { textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 9, borderBottom: { color: [0, 0, 0], width: 0.1 } },
+        headStyles: { textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 9, lineWidth: 0.1, lineColor: [0, 0, 0] },
         styles: { fontSize: 8, cellPadding: 3, lineColor: [230, 230, 230], lineWidth: 0.1 },
         columnStyles: { 2: { halign: 'center', fontStyle: 'bold', textColor: [220, 38, 38] }, 3: { halign: 'center' }, 4: { cellWidth: 35 } },
         didDrawPage: (data) => { currentY = data.cursor?.y || 50; }
@@ -117,7 +113,6 @@ export default function NecessidadesReposicao() {
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Preparação de lista de compras / encomendas</p>
         </div>
         
-        {/* BOTÃO GLOBAL (Imprime tudo sempre) */}
         <button 
           onClick={() => gerarPDFProfissional(dadosNecessidades, "Todas")} 
           disabled={totalArtigos === 0}
@@ -194,7 +189,6 @@ export default function NecessidadesReposicao() {
                ))}
             </div>
 
-            {/* --- NOVO BOTÃO PARCIAL (Aparece no fundo se houver filtro ativo) --- */}
             {categoriaFiltro !== "Todas" && (
               <div className="mt-10 flex justify-end border-t border-slate-100 pt-8">
                 <button 
